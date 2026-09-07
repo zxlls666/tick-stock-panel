@@ -1,7 +1,7 @@
 """fuyao 财务适配测试 (不依赖真实网络)。
 
 覆盖: 三大报表字段映射 (canonical 列名 + 扩展列透传 + ISO 日期口径)、
-latest_only 分档 (limit 1 vs 8)、metrics 组装 (eps_basic 顺带 / bps 估值反推 /
+latest_only 分档 (limit 1 vs 12)、metrics 组装 (eps_basic 顺带 / bps 估值反推 /
 指标 index_id 映射与未知 id 透传 / 单股指标失败不弃行)、shares 恒空、
 报告期合并写入的逐列填空语义 (并集共存, 新行缺列不覆盖旧值)。
 """
