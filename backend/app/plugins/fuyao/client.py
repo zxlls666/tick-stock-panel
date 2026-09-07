@@ -24,6 +24,11 @@ BASE_URL = "https://fuyao.aicubes.cn"
 _SNAPSHOT_PAGE_SIZE = 6000
 _SNAPSHOT_MAX_PAGES = 50
 _PAGE_INTERVAL_S = 0.15  # 页间隔, 降低触发限频 (code=4001) 的概率
+# HTTP 429 限流: 退避重试次数与首退避秒数(指数翻倍)。
+# 实测财务批量同步时上游会持续 429, 失败即跳过会导致整批标的缺失;
+# 退避重试把瞬时限流变为可恢复, 重试耗尽仍失败才由调用方跳过。
+_HTTP_429_RETRIES = 3
+_HTTP_429_BACKOFF_S = 1.0
 
 
 class FuyaoError(Exception):
@@ -48,11 +53,29 @@ class FuyaoClient:
 
     # ---- 内部 ----
     def _get(self, path: str, params: dict) -> dict:
-        """GET + 信封解包。code != 0 时抛 FuyaoError(含 code 与 message)。"""
+        """GET + 信封解包。code != 0 时抛 FuyaoError(含 code 与 message)。
+
+        HTTP 429 做指数退避重试(其余状态码/payload 行为不变): 批量走批
+        请求(财务/日K/快照)被上游限流时, 短暂退避后重试可恢复, 避免整批
+        标的被 provider 层当成失败跳过 → 数据缺失。
+        """
         try:
             resp = self._http.get(path, params=params)
         except httpx.HTTPError as e:
             raise FuyaoError(f"网络请求失败: {e}") from e
+        for attempt in range(_HTTP_429_RETRIES):
+            if resp.status_code != 429:
+                break
+            wait = _HTTP_429_BACKOFF_S * (2**attempt)
+            logger.warning(
+                "fuyao HTTP 429 %s, 退避 %.1fs 后重试 (%d/%d)",
+                path, wait, attempt + 1, _HTTP_429_RETRIES,
+            )
+            time.sleep(wait)
+            try:
+                resp = self._http.get(path, params=params)
+            except httpx.HTTPError as e:
+                raise FuyaoError(f"网络请求失败: {e}") from e
         if resp.status_code != 200:
             raise FuyaoError(f"HTTP {resp.status_code}: {path}")
         try:
