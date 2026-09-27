@@ -6,11 +6,12 @@ import { api, type CustomSignal } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { BUILTIN_SIGNAL_DEFINITIONS, type SignalKind } from '@/lib/signals'
 import { CustomSignalDialog } from '@/components/signals/CustomSignalDialog'
+import { FlowRadar } from '@/components/signals/FlowRadar'
 import { Skeleton } from '@/components/data/Skeleton'
 import { PageHeader } from '@/components/PageHeader'
 import { AnchorWrap } from '@/lib/useCardFlash'
 
-type SignalSection = 'builtin' | 'custom'
+type SignalSection = 'radar' | 'builtin' | 'custom'
 
 const KIND_LABEL: Record<SignalKind, string> = { entry: '入场', exit: '出场', both: '出入通用' }
 const KIND_CLASS: Record<SignalKind, string> = {
@@ -26,7 +27,7 @@ export function Signals() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="信号库" subtitle="内置预计算信号与自定义条件信号, 供策略 / 回测 / 监控统一使用" />
+      <PageHeader title="信号库" subtitle="盘后雷达从行情现算触发证据、历史统计和风险标签；自定义条件仍可供策略 / 回测 / 监控使用" />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <div className="mx-auto max-w-6xl">
           <SignalsBody highlight={highlight} />
@@ -41,7 +42,7 @@ function SignalsBody({ highlight }: { highlight: string }) {
   const list = useQuery({ queryKey: QK.customSignals, queryFn: api.customSignalsList })
   const options = useQuery({ queryKey: QK.customSignalsOptions, queryFn: api.customSignalsOptions })
 
-  const [activeSection, setActiveSection] = useState<SignalSection>('custom')
+  const [activeSection, setActiveSection] = useState<SignalSection>(highlight ? 'custom' : 'radar')
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CustomSignal | null>(null)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
@@ -102,6 +103,7 @@ function SignalsBody({ highlight }: { highlight: string }) {
   }
 
   const tabs = [
+    { key: 'radar' as const, label: '盘后雷达', count: 8, hint: 'V1 与 V2 分开，不落触发表' },
     { key: 'custom' as const, label: '自定义信号', count: signals.length, hint: `${enabledCustomSignals} 个已启用` },
     { key: 'builtin' as const, label: '内置信号', count: BUILTIN_SIGNAL_DEFINITIONS.length, hint: '系统预计算，只读' },
   ]
@@ -142,6 +144,8 @@ function SignalsBody({ highlight }: { highlight: string }) {
           </button>
         </div>
       </div>
+
+      {activeSection === 'radar' && <FlowRadar />}
 
       {activeSection === 'custom' && (
         <AnchorWrap highlight={highlight} anchor="signals">

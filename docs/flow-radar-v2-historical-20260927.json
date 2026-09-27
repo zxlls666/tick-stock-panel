@@ -1,0 +1,717 @@
+{
+  "kind": "flow_radar_v2_historical_confirmation",
+  "recorded_at": "2026-09-27T23:07:28",
+  "spec_hash": "a4457045efabcbdedec4aa2f88f0163737206e11de6cefeeae18a65a0f18e8dc",
+  "code_version": {
+    "commit": "7ea7ccb11f52eaf7bece1a4e730696f685053068",
+    "radar_worktree": "?? backend/app/services/flow_radar.py\n?? backend/app/services/flow_radar_v2.py\n?? frontend/src/components/signals/FlowRadar.tsx"
+  },
+  "as_of": "2026-09-24",
+  "study_start": "2021-01-04",
+  "study_end": "2026-09-24",
+  "load_start": "2020-09-09",
+  "generation": "78ff1e8ffb6c48ccb0ebacd0ac780718",
+  "elapsed_s": 20.1,
+  "persisted_triggers": false,
+  "industry": {
+    "status": "证据不足/未知",
+    "detail": "ext_hy_ths 没有行业分区，instruments 也没有历史行业列，本次不做行业分组。"
+  },
+  "cost": {
+    "commission_pct": 0.0002,
+    "stamp_tax_pct": 0.0005,
+    "slippage_bps": 5.0,
+    "round_trip": 0.0019,
+    "detail": "买入次日开盘、卖出持有期末收盘。往返成本 = 佣金万二双边 + 卖出印花税万五 + 滑点 5bp 双边 = 19bp。"
+  },
+  "signals": [
+    {
+      "id": "squeeze_expand_strong_close_v2",
+      "name": "缩量后强收盘扩张V2",
+      "direction": "long",
+      "status": "historical_rejected",
+      "status_label": "历史未通过",
+      "status_note": "历史主门槛未通过。报告已落盘。公式、成本、5 日持有期和门槛保持冻结；新假设另建 V2.1。",
+      "risk_label": "做多候选。在缩量后扩张上要求收盘位于当日区间上部，且收盘涨幅至少 1%。",
+      "formula": "10 个交易日前 amplitude_trend_20_60 <= -0.15，10 个交易日前 vol_trend_5_60 <= -0.10，当日量比 >= 1.5，振幅 >= 0.03，波动状态 >= 1.2，收盘位置 >= 0.75，涨跌幅 >= 0.01。",
+      "warmup_bars": 70,
+      "invalid_when": "任一条件为空则不触发。收盘质量条件用来留下强收盘的扩张日。",
+      "column": "csg_squeeze_expand_strong_close_v2",
+      "evidence": [
+        {
+          "column": "amplitude_trend_20_60_lag10",
+          "label": "10日前振幅趋势"
+        },
+        {
+          "column": "vol_trend_5_60_lag10",
+          "label": "10日前量能趋势"
+        },
+        {
+          "column": "vol_ratio_5d",
+          "label": "量比"
+        },
+        {
+          "column": "amplitude",
+          "label": "振幅"
+        },
+        {
+          "column": "vol_regime_5_60",
+          "label": "波动状态"
+        },
+        {
+          "column": "close_position",
+          "label": "收盘位置"
+        },
+        {
+          "column": "change_pct",
+          "label": "涨跌幅"
+        }
+      ],
+      "events": 20901,
+      "signal_days": 1305,
+      "names_per_day": {
+        "min": 1,
+        "median": 10,
+        "max": 893
+      },
+      "gate": {
+        "passed": false,
+        "failures": [
+          "mean",
+          "median",
+          "win_rate",
+          "newey_west",
+          "year_sign"
+        ],
+        "observed": {
+          "signal_days": 1305,
+          "mean": -0.004492,
+          "median": -0.005746,
+          "win_rate": 0.431418,
+          "newey_west_t": -2.008948,
+          "newey_west_lag": 4,
+          "eligible_years": 6,
+          "directional_year_ratio": 0.1667,
+          "years": [
+            {
+              "year": "2021",
+              "n": 238,
+              "mean": 0.006212
+            },
+            {
+              "year": "2022",
+              "n": 230,
+              "mean": -0.016607
+            },
+            {
+              "year": "2023",
+              "n": 239,
+              "mean": -0.001189
+            },
+            {
+              "year": "2024",
+              "n": 201,
+              "mean": -0.009262
+            },
+            {
+              "year": "2025",
+              "n": 238,
+              "mean": -0.000929
+            },
+            {
+              "year": "2026",
+              "n": 159,
+              "mean": -0.007259
+            }
+          ]
+        }
+      },
+      "disclosure": {
+        "horizons": {
+          "1": {
+            "signal_days": 1309,
+            "mean": 0.000328,
+            "median": -0.001053,
+            "win_rate": 0.477464
+          },
+          "5": {
+            "signal_days": 1305,
+            "mean": -0.004492,
+            "median": -0.005746,
+            "win_rate": 0.431418
+          },
+          "10": {
+            "signal_days": 1300,
+            "mean": -0.008577,
+            "median": -0.009966,
+            "win_rate": 0.408462
+          },
+          "20": {
+            "signal_days": 1289,
+            "mean": -0.007723,
+            "median": -0.015357,
+            "win_rate": 0.417378
+          }
+        },
+        "by_size": [
+          {
+            "key": "小市值",
+            "signal_days": 1140,
+            "mean": -0.010002,
+            "median": -0.012434,
+            "win_rate": 0.405263
+          },
+          {
+            "key": "中市值",
+            "signal_days": 1210,
+            "mean": -0.002957,
+            "median": -0.008299,
+            "win_rate": 0.43719
+          },
+          {
+            "key": "大市值",
+            "signal_days": 1071,
+            "mean": -4.1e-05,
+            "median": -0.004054,
+            "win_rate": 0.459384
+          }
+        ],
+        "by_regime": [
+          {
+            "key": "偏弱",
+            "signal_days": 223,
+            "mean": -0.003384,
+            "median": -0.004487,
+            "win_rate": 0.439462
+          },
+          {
+            "key": "偏强",
+            "signal_days": 302,
+            "mean": 0.000278,
+            "median": -0.004041,
+            "win_rate": 0.44702
+          },
+          {
+            "key": "弱",
+            "signal_days": 274,
+            "mean": -0.013643,
+            "median": -0.019681,
+            "win_rate": 0.354015
+          },
+          {
+            "key": "强",
+            "signal_days": 364,
+            "mean": 0.002239,
+            "median": -0.000634,
+            "win_rate": 0.486264
+          },
+          {
+            "key": "震荡",
+            "signal_days": 142,
+            "mean": -0.015978,
+            "median": -0.016369,
+            "win_rate": 0.394366
+          }
+        ]
+      },
+      "candidates": [
+        {
+          "symbol": "002413.SZ",
+          "name": "雷科防务",
+          "date": "2026-09-24",
+          "score": 2.4444,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.3279,
+            "vol_trend_5_60_lag10": -0.4686,
+            "vol_ratio_5d": 5.4632,
+            "amplitude": 0.081,
+            "vol_regime_5_60": 1.3659,
+            "close_position": 1.0,
+            "change_pct": 0.1006
+          }
+        },
+        {
+          "symbol": "600843.SH",
+          "name": "上工申贝",
+          "date": "2026-09-24",
+          "score": 2.4444,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.3465,
+            "vol_trend_5_60_lag10": -0.5717,
+            "vol_ratio_5d": 6.4593,
+            "amplitude": 0.1537,
+            "vol_regime_5_60": 1.6824,
+            "close_position": 1.0,
+            "change_pct": 0.0999
+          }
+        },
+        {
+          "symbol": "688682.SH",
+          "name": "霍莱沃",
+          "date": "2026-09-24",
+          "score": 2.4444,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2605,
+            "vol_trend_5_60_lag10": -0.4286,
+            "vol_ratio_5d": 6.6514,
+            "amplitude": 0.1249,
+            "vol_regime_5_60": 1.9693,
+            "close_position": 1.0,
+            "change_pct": 0.1999
+          }
+        },
+        {
+          "symbol": "601777.SH",
+          "name": "千里科技",
+          "date": "2026-09-24",
+          "score": 2.1383,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2989,
+            "vol_trend_5_60_lag10": -0.4314,
+            "vol_ratio_5d": 3.4236,
+            "amplitude": 0.0947,
+            "vol_regime_5_60": 1.5204,
+            "close_position": 0.8493,
+            "change_pct": 0.0739
+          }
+        },
+        {
+          "symbol": "603278.SH",
+          "name": "大业股份",
+          "date": "2026-09-24",
+          "score": 2.1075,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2932,
+            "vol_trend_5_60_lag10": -0.5258,
+            "vol_ratio_5d": 2.9839,
+            "amplitude": 0.1066,
+            "vol_regime_5_60": 1.2691,
+            "close_position": 1.0,
+            "change_pct": 0.0999
+          }
+        },
+        {
+          "symbol": "600189.SH",
+          "name": "泉阳泉",
+          "date": "2026-09-24",
+          "score": 2.0707,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.1648,
+            "vol_trend_5_60_lag10": -0.1719,
+            "vol_ratio_5d": 2.8183,
+            "amplitude": 0.1052,
+            "vol_regime_5_60": 1.6959,
+            "close_position": 1.0,
+            "change_pct": 0.1004
+          }
+        },
+        {
+          "symbol": "300569.SZ",
+          "name": "天能重工",
+          "date": "2026-09-24",
+          "score": 1.9828,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2687,
+            "vol_trend_5_60_lag10": -0.2816,
+            "vol_ratio_5d": 2.7407,
+            "amplitude": 0.0891,
+            "vol_regime_5_60": 1.56,
+            "close_position": 0.8409,
+            "change_pct": 0.0688
+          }
+        },
+        {
+          "symbol": "600156.SH",
+          "name": "华升股份",
+          "date": "2026-09-24",
+          "score": 1.8671,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.197,
+            "vol_trend_5_60_lag10": -0.1336,
+            "vol_ratio_5d": 2.0902,
+            "amplitude": 0.1011,
+            "vol_regime_5_60": 1.5954,
+            "close_position": 0.9059,
+            "change_pct": 0.0904
+          }
+        },
+        {
+          "symbol": "920200.BJ",
+          "name": "振宏股份",
+          "date": "2026-09-24",
+          "score": 1.7997,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.3585,
+            "vol_trend_5_60_lag10": -0.4225,
+            "vol_ratio_5d": 1.8528,
+            "amplitude": 0.1258,
+            "vol_regime_5_60": 1.2133,
+            "close_position": 0.873,
+            "change_pct": 0.1019
+          }
+        },
+        {
+          "symbol": "605018.SH",
+          "name": "长华集团",
+          "date": "2026-09-24",
+          "score": 1.7874,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2223,
+            "vol_trend_5_60_lag10": -0.64,
+            "vol_ratio_5d": 1.5432,
+            "amplitude": 0.1114,
+            "vol_regime_5_60": 1.4755,
+            "close_position": 1.0,
+            "change_pct": 0.1002
+          }
+        },
+        {
+          "symbol": "603500.SH",
+          "name": "祥和实业",
+          "date": "2026-09-24",
+          "score": 1.7813,
+          "evidence": {
+            "amplitude_trend_20_60_lag10": -0.2436,
+            "vol_trend_5_60_lag10": -0.5953,
+            "vol_ratio_5d": 1.5158,
+            "amplitude": 0.0866,
+            "vol_regime_5_60": 1.6664,
+            "close_position": 1.0,
+            "change_pct": 0.1003
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "left": "amplitude_trend_20_60",
+          "op": "<=",
+          "right": "-0.15",
+          "leftDays": 10,
+          "rightDays": 0
+        },
+        {
+          "left": "vol_trend_5_60",
+          "op": "<=",
+          "right": "-0.10",
+          "leftDays": 10,
+          "rightDays": 0
+        },
+        {
+          "left": "vol_ratio_5d",
+          "op": ">=",
+          "right": "1.5",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "amplitude",
+          "op": ">=",
+          "right": "0.03",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "vol_regime_5_60",
+          "op": ">=",
+          "right": "1.2",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "close_position",
+          "op": ">=",
+          "right": "0.75",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "change_pct",
+          "op": ">=",
+          "right": "0.01",
+          "leftDays": 0,
+          "rightDays": 0
+        }
+      ],
+      "definition_matches_spec": true,
+      "enabled": true
+    },
+    {
+      "id": "high_turnover_weak_close_risk_v2",
+      "name": "高位换手弱收盘风险V2",
+      "direction": "risk",
+      "status": "historical_rejected",
+      "status_label": "历史未通过",
+      "status_note": "历史主门槛未通过。报告已落盘。公式、成本、5 日持有期和门槛保持冻结；新假设另建 V2.1。",
+      "risk_label": "风险过滤候选。触发公式与 V1 高位换手风险相同，评价的是相对同日同市值可成交股票的超额收益。",
+      "formula": "position_240d >= 0.85，换手 z >= 2，收盘位置 <= 0.35，振幅 >= 0.04，成交额增幅 >= 0.5。",
+      "warmup_bars": 240,
+      "invalid_when": "任一条件为空则不触发。没有可匹配的同日同市值对照时，该股票不进入信号日超额。",
+      "column": "csg_high_turnover_weak_close_risk_v2",
+      "evidence": [
+        {
+          "column": "position_240d",
+          "label": "一年位置"
+        },
+        {
+          "column": "turnover_z_60d",
+          "label": "换手z"
+        },
+        {
+          "column": "close_position",
+          "label": "收盘位置"
+        },
+        {
+          "column": "amplitude",
+          "label": "振幅"
+        },
+        {
+          "column": "amount_ratio_5d",
+          "label": "成交额增幅"
+        }
+      ],
+      "events": 13677,
+      "signal_days": 1154,
+      "names_per_day": {
+        "min": 1,
+        "median": 8,
+        "max": 214
+      },
+      "gate": {
+        "passed": false,
+        "failures": [
+          "mean",
+          "newey_west",
+          "year_sign"
+        ],
+        "observed": {
+          "signal_days": 1154,
+          "mean": 0.002799,
+          "median": -0.001311,
+          "negative_rate": 0.510399,
+          "newey_west_t": 1.388281,
+          "newey_west_lag": 4,
+          "eligible_years": 6,
+          "directional_year_ratio": 0.0,
+          "years": [
+            {
+              "year": "2021",
+              "n": 77,
+              "mean": 0.002809
+            },
+            {
+              "year": "2022",
+              "n": 234,
+              "mean": 0.000411
+            },
+            {
+              "year": "2023",
+              "n": 239,
+              "mean": 0.000776
+            },
+            {
+              "year": "2024",
+              "n": 197,
+              "mean": 0.007374
+            },
+            {
+              "year": "2025",
+              "n": 243,
+              "mean": 0.002918
+            },
+            {
+              "year": "2026",
+              "n": 164,
+              "mean": 0.003477
+            }
+          ]
+        }
+      },
+      "disclosure": {
+        "by_size": [
+          {
+            "key": "小市值",
+            "signal_days": 846,
+            "mean": 0.004914,
+            "median": -0.001488
+          },
+          {
+            "key": "中市值",
+            "signal_days": 1027,
+            "mean": -3.6e-05,
+            "median": -0.005236
+          },
+          {
+            "key": "大市值",
+            "signal_days": 967,
+            "mean": 0.006767,
+            "median": -0.000693
+          }
+        ],
+        "by_regime": [
+          {
+            "key": "偏弱",
+            "signal_days": 186,
+            "mean": 0.00785,
+            "median": 0.001769
+          },
+          {
+            "key": "偏强",
+            "signal_days": 261,
+            "mean": 0.002893,
+            "median": 0.001777
+          },
+          {
+            "key": "弱",
+            "signal_days": 253,
+            "mean": 0.004307,
+            "median": -0.004834
+          },
+          {
+            "key": "强",
+            "signal_days": 326,
+            "mean": 0.000965,
+            "median": -0.001956
+          },
+          {
+            "key": "震荡",
+            "signal_days": 128,
+            "mean": -0.003046,
+            "median": -0.008941
+          }
+        ]
+      },
+      "candidates": [
+        {
+          "symbol": "688203.SH",
+          "name": "海正生材",
+          "date": "2026-09-24",
+          "score": 2.361,
+          "evidence": {
+            "position_240d": 0.9206,
+            "turnover_z_60d": 6.7626,
+            "close_position": 0.0986,
+            "amplitude": 0.1502,
+            "amount_ratio_5d": 1.8952
+          }
+        },
+        {
+          "symbol": "000910.SZ",
+          "name": "大亚圣象",
+          "date": "2026-09-24",
+          "score": 2.3537,
+          "evidence": {
+            "position_240d": 0.902,
+            "turnover_z_60d": 10.2308,
+            "close_position": 0.1868,
+            "amplitude": 0.1201,
+            "amount_ratio_5d": 3.3016
+          }
+        },
+        {
+          "symbol": "300829.SZ",
+          "name": "金丹科技",
+          "date": "2026-09-24",
+          "score": 2.1113,
+          "evidence": {
+            "position_240d": 0.9261,
+            "turnover_z_60d": 4.4887,
+            "close_position": 0.2059,
+            "amplitude": 0.1421,
+            "amount_ratio_5d": 0.6552
+          }
+        },
+        {
+          "symbol": "301189.SZ",
+          "name": "奥尼电子",
+          "date": "2026-09-24",
+          "score": 2.0349,
+          "evidence": {
+            "position_240d": 0.9681,
+            "turnover_z_60d": 3.9317,
+            "close_position": 0.3475,
+            "amplitude": 0.1522,
+            "amount_ratio_5d": 0.7754
+          }
+        },
+        {
+          "symbol": "000560.SZ",
+          "name": "我爱我家",
+          "date": "2026-09-24",
+          "score": 1.7518,
+          "evidence": {
+            "position_240d": 0.8925,
+            "turnover_z_60d": 2.4109,
+            "close_position": 0.1373,
+            "amplitude": 0.1321,
+            "amount_ratio_5d": 1.343
+          }
+        },
+        {
+          "symbol": "300691.SZ",
+          "name": "联合光电",
+          "date": "2026-09-24",
+          "score": 1.652,
+          "evidence": {
+            "position_240d": 1.0,
+            "turnover_z_60d": 4.2195,
+            "close_position": 0.3071,
+            "amplitude": 0.0668,
+            "amount_ratio_5d": 0.8614
+          }
+        },
+        {
+          "symbol": "600753.SH",
+          "name": "ST海钦",
+          "date": "2026-09-24",
+          "score": 1.3622,
+          "evidence": {
+            "position_240d": 0.872,
+            "turnover_z_60d": 3.4348,
+            "close_position": 0.2917,
+            "amplitude": 0.0537,
+            "amount_ratio_5d": 0.8613
+          }
+        }
+      ],
+      "conditions": [
+        {
+          "left": "position_240d",
+          "op": ">=",
+          "right": "0.85",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "turnover_z_60d",
+          "op": ">=",
+          "right": "2",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "close_position",
+          "op": "<=",
+          "right": "0.35",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "amplitude",
+          "op": ">=",
+          "right": "0.04",
+          "leftDays": 0,
+          "rightDays": 0
+        },
+        {
+          "left": "amount_ratio_5d",
+          "op": ">=",
+          "right": "0.5",
+          "leftDays": 0,
+          "rightDays": 0
+        }
+      ],
+      "definition_matches_spec": true,
+      "enabled": true
+    }
+  ]
+}

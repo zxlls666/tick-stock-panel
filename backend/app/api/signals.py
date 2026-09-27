@@ -166,6 +166,17 @@ def list_signals(request: Request):
     return {"signals": sigs}
 
 
+@router.get("/radar")
+def flow_radar(request: Request, refresh: bool = False):
+    """盘后雷达：从行情和 custom_signals 现算触发证据与事件统计，不写触发表。"""
+    from app.services.flow_radar import build_radar_report
+
+    try:
+        return build_radar_report(_data_dir(request), refresh=refresh)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 # ── 新建 / 更新 ────────────────────────────────────────
 
 

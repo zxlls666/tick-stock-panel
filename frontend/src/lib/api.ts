@@ -846,6 +846,123 @@ export interface CustomSignalOptions {
   kinds: { key: string; label: string }[]
 }
 
+export interface FlowRadarHorizon {
+  n: number
+  n_price: number
+  n_exit_blocked: number
+  n_path_gap: number
+  mean_trade_ret: number | null
+  mean_net_ret: number | null
+  median_net_ret: number | null
+  win_rate_net: number | null
+  mean_mfe: number | null
+  mean_mae: number | null
+  mean_price_ret: number | null
+}
+
+export interface FlowRadarGroup {
+  key: string
+  n: number
+  mean_net_ret: number | null
+  win_rate_net: number | null
+}
+
+export interface FlowRadarSignal {
+  id: string
+  name: string
+  kind: 'entry' | 'exit' | 'both'
+  column: string
+  enabled: boolean
+  risk_label: string
+  formula: string
+  warmup_bars: number
+  invalid_when: string
+  evidence: { column: string; label: string }[]
+  definition_matches_spec: boolean
+  gate: { passed: boolean; label: string; observed: Record<string, number | null> }
+  triggers: number
+  entry: Record<string, number>
+  horizons: Record<string, FlowRadarHorizon>
+  by_year: FlowRadarGroup[]
+  by_size: FlowRadarGroup[]
+  by_regime: FlowRadarGroup[]
+  size_note: string
+  regime_note: string
+  candidates: {
+    symbol: string
+    name: string
+    date: string
+    score: number | null
+    evidence: Record<string, number | null>
+  }[]
+}
+
+export interface FlowRadarV2DisclosureRow {
+  key: string
+  signal_days: number
+  mean: number | null
+  median: number | null
+  win_rate?: number | null
+}
+
+export interface FlowRadarV2Signal {
+  id: string
+  name: string
+  direction: 'long' | 'risk'
+  status: string
+  status_label: string
+  status_note: string
+  risk_label: string
+  formula: string
+  column: string
+  definition_matches_spec?: boolean
+  events: number
+  signal_days: number
+  names_per_day: { min: number | null; median: number | null; max: number | null }
+  gate: {
+    passed: boolean
+    failures: string[]
+    observed: {
+      signal_days: number
+      mean: number | null
+      median: number | null
+      win_rate?: number | null
+      negative_rate?: number | null
+      newey_west_t: number | null
+      newey_west_lag: number
+      eligible_years: number
+      directional_year_ratio: number
+    }
+  }
+  disclosure: {
+    horizons?: Record<string, { signal_days: number; mean: number | null; median: number | null; win_rate: number | null }>
+    by_size: FlowRadarV2DisclosureRow[]
+    by_regime: FlowRadarV2DisclosureRow[]
+  }
+  candidates: {
+    symbol: string
+    name: string
+    date: string
+    score: number | null
+    evidence: Record<string, number | null>
+  }[]
+  evidence: { column: string; label: string }[]
+}
+
+export interface FlowRadarReport {
+  as_of: string | null
+  study_start: string
+  study_end: string | null
+  generation: string | null
+  elapsed_s: number
+  persisted_triggers: boolean
+  industry: { status: string; detail: string }
+  cost: { round_trip: number; detail: string }
+  method: string[]
+  signals: FlowRadarSignal[]
+  v2?: FlowRadarV2Signal[]
+}
+
 export interface CustomSignalAIGenerateResult {
   name: string
   conditions: CustomSignalCondition[]
@@ -3372,6 +3489,11 @@ export const api = {
   // ===== Custom Signals (自定义信号) =====
   customSignalsList: () =>
     request<{ signals: CustomSignal[] }>('/api/custom-signals'),
+
+  flowRadar: (refresh = false) =>
+    request<FlowRadarReport>(`/api/custom-signals/radar?refresh=${refresh ? 'true' : 'false'}`, {
+      timeoutMs: COMPUTE_REQUEST_TIMEOUT_MS,
+    }),
 
   customSignalsOptions: () =>
     request<CustomSignalOptions>('/api/custom-signals/options'),

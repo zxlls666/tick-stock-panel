@@ -98,6 +98,7 @@ export const QK = {
   // Custom Signals
   customSignals:        ['custom-signals'] as const,
   customSignalsOptions: ['custom-signals-options'] as const,
+  flowRadar:            (tick: number) => ['flow-radar', tick] as const,
 
   // Monitor (监控规则 + 触发记录)
   monitorRules:         ['monitor-rules'] as const,
