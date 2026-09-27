@@ -83,7 +83,7 @@ GOLDEN_COLUMNS: list[dict] = [
     {"id": "net_income_yoy_latest", "label": "净利增速(最新公告)", "group": "财务", "desc": "最新已公告归母净利润同比(%)"},
     {"id": "debt_ratio_latest", "label": "资产负债率(最新公告)", "group": "财务", "desc": "最新已公告资产负债率(%)"},
     # --- 扩充批次 (2026-09-05): 追加于目录尾部, 前 48 项挖掘调度顺序不变 ---
-    {"id": "log_float_mv", "label": "流通市值对数", "group": "规模", "desc": "ln(收盘价 x 当日成交量 / 换手率), 由换手率反推流通股本, 高值代表大盘"},
+    {"id": "log_float_mv", "label": "流通市值对数", "group": "规模", "desc": "ln(收盘价 x 当日成交量 / 换手率), 由换手率反推流通股本, 高值代表大盘; 换手率缺失或非正时为空"},
     {"id": "momentum_120d", "label": "120日动量", "group": "动量", "desc": "120个交易日累计收益率 (中期动量, 与短窗口互补)"},
     {"id": "mom_accel_20_60", "label": "动量加速度", "group": "动量", "desc": "20日动量 - 60日动量, 衡量近期动量相对中期是否增强"},
     {"id": "rsi_14_delta_5d", "label": "RSI五日变化", "group": "超买超卖", "desc": "RSI(14) - 5日前的RSI(14), 衡量强弱指标的边际变化"},
@@ -99,6 +99,7 @@ GOLDEN_COLUMNS: list[dict] = [
     {"id": "position_240d", "label": "一年价格位置", "group": "价格位置", "desc": "收盘价在近240个交易日最低价到最高价之间的位置 (0~1)"},
     {"id": "distance_to_high_240d", "label": "距一年高点", "group": "价格位置", "desc": "收盘价 / 240日最高收盘价 - 1, 接近0代表贴近一年新高"},
     {"id": "kdj_kd_diff", "label": "KDJ K-D差", "group": "趋势", "desc": "KDJ K值 - D值, 正值代表快线在慢线上方"},
+    {"id": "ocf_to_ni_latest", "label": "经营现金流/归母净利(最新公告)", "group": "财务", "desc": "最新已公告经营现金流相对归母净利润(%), 取 metrics.net_profit_cash_content, 不除以 100; 无财务数据或公告前为空"},
 ]
 
 GOLDEN_VIRTUAL_DEPS: dict[str, frozenset[str]] = {
@@ -230,14 +231,19 @@ def test_scoring_warmup_snapshot() -> None:
 
 def test_catalog_counts_and_kinds() -> None:
     specs = all_factors()
-    assert len(specs) == 77
-    assert len({spec.id for spec in specs}) == 77  # id 唯一
+    assert len(specs) == 78
+    assert len({spec.id for spec in specs}) == 78  # id 唯一
     virtual = [spec for spec in specs if spec.kind == "virtual"]
     assert len(virtual) == 52  # ma/ema 10 + 原有 26 + 扩充批次 16
-    financial = [spec for spec in specs if spec.pit]
-    assert len(financial) == 7
-    assert all(spec.pit_source == "financial_announce" for spec in financial)
+    financial = [spec for spec in specs if spec.pit_source == "financial_announce"]
+    assert len(financial) == 8
+    assert all(spec.pit for spec in financial)
     assert all(spec.asset_types == frozenset({"stock"}) for spec in financial)
+    share = [spec for spec in specs if spec.pit_source == "share_capital_announce"]
+    assert [spec.id for spec in share] == ["log_float_mv"]
+    assert share[0].pit is True
+    assert share[0].warmup_bars == 1
+    assert share[0].dependencies == frozenset({"close", "volume", "turnover_rate"})
 
 
 def test_mining_schedule_order_prefix_unchanged() -> None:
@@ -261,8 +267,8 @@ def test_get_factor_and_dependencies() -> None:
 def test_asset_type_filter() -> None:
     stock = all_factors(asset_type="stock")
     etf = all_factors(asset_type="etf")
-    assert len(stock) == 77
-    assert len(etf) == 70  # 财务 7 项仅股票
+    assert len(stock) == 78
+    assert len(etf) == 70  # 财务 8 项仅股票
 
 
 def test_register_factor_rejects_duplicate() -> None:
@@ -309,7 +315,7 @@ def test_factors_api_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     factors = payload["factors"]
-    assert len(factors) == 77
+    assert len(factors) == 78
     first = factors[0]
     assert first["id"] == "momentum_5d"
     assert first["kind"] == "base"

@@ -9,6 +9,11 @@
 - 无财务数据的标的/日期一律为 null, 绝不填 0 (填 0 会污染截面排名,
   例如资产负债率 0 会被当成最优杠杆)。下游 IC/分层/评分对 null 自动剔除。
 
+上游脏数据:
+- 扶摇历史期 ``report_date_ms`` 常跨年复用/滞后约一年 (本地实测 lag p50≈395 日)。
+- 加载时若 ``announce_date`` 相对 ``period_end`` 不可信, 回退到 A 股法定披露截止日
+  (保守可用日, 宁可偏晚也不偷看)。见 ``sanitize_announce_dates``。
+
 性能:
 - 财务表约数千行, join_asof 按 symbol 分组回填, 对百万行面板的代价是
   毫秒级; 矩阵路径每个因子只物化一张 float32 TxN 矩阵 (T~900, N~5500
@@ -17,6 +22,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -25,6 +31,9 @@ import numpy as np
 import polars as pl
 
 logger = logging.getLogger(__name__)
+
+# 超过此滞后天数视为上游公告日不可信 (正常季报/年报很少超过半年才披露)。
+_ANNOUNCE_LAG_MAX_DAYS = 180
 
 # 财务因子名 -> (metrics 表列名, 是否需要除以收盘价)
 # pb_latest 单列声明为 bps 倒数口径: 因子值 = close / bps。
@@ -36,9 +45,69 @@ FUNDAMENTAL_FACTORS: dict[str, dict[str, Any]] = {
     "revenue_yoy_latest": {"column": "revenue_yoy", "price_ratio": False},
     "net_income_yoy_latest": {"column": "net_income_yoy", "price_ratio": False},
     "debt_ratio_latest": {"column": "debt_to_asset_ratio", "price_ratio": False},
+    # 百分数原样使用, 不除以 100。列已与经营现金流/归母净利润核对。
+    "ocf_to_ni_latest": {"column": "net_profit_cash_content", "price_ratio": False},
 }
 
 FUNDAMENTAL_FACTOR_NAMES = frozenset(FUNDAMENTAL_FACTORS)
+
+
+def default_announce_date(period_end: date) -> date:
+    """A 股法定披露截止日近似值 (保守可用日, 非真实公告日)。
+
+    Q1→同年 4/30; 中报→同年 8/31; Q3→同年 10/31; 年报→次年 4/30。
+    """
+    month = period_end.month
+    year = period_end.year
+    if month == 3:
+        return date(year, 4, 30)
+    if month == 6:
+        return date(year, 8, 31)
+    if month == 9:
+        return date(year, 10, 31)
+    if month == 12:
+        return date(year + 1, 4, 30)
+    # 非标准季末: period_end + 45 日
+    return period_end + timedelta(days=45)
+
+
+def sanitize_announce_dates(frame: pl.DataFrame) -> pl.DataFrame:
+    """将相对 period_end 不可信的 announce_date 替换为法定截止日。
+
+    保留 lag∈[0, 180] 的原始公告日; 缺 period_end 时不做改写。
+    """
+    if "period_end" not in frame.columns or "announce_date" not in frame.columns:
+        return frame
+    pe = pl.col("period_end").cast(pl.Utf8).str.slice(0, 10).str.to_date()
+    ad = pl.col("announce_date").cast(pl.Utf8).str.slice(0, 10).str.to_date()
+    lag = (ad - pe).dt.total_days()
+    bad = ad.is_null() | lag.is_null() | (lag < 0) | (lag > _ANNOUNCE_LAG_MAX_DAYS)
+    # 按季末映射默认公告日 (Polars 表达式, 避免 Python UDF)
+    default_ad = (
+        pl.when(pe.dt.month() == 3)
+        .then(pl.date(pe.dt.year(), 4, 30))
+        .when(pe.dt.month() == 6)
+        .then(pl.date(pe.dt.year(), 8, 31))
+        .when(pe.dt.month() == 9)
+        .then(pl.date(pe.dt.year(), 10, 31))
+        .when(pe.dt.month() == 12)
+        .then(pl.date(pe.dt.year() + 1, 4, 30))
+        .otherwise(pe + pl.duration(days=45))
+    )
+    n_bad = int(frame.select(bad.sum()).item()) if frame.height else 0
+    if n_bad:
+        logger.info(
+            "sanitize_announce_dates: replaced %d/%d rows (lag>%dd or invalid)",
+            n_bad,
+            frame.height,
+            _ANNOUNCE_LAG_MAX_DAYS,
+        )
+    return frame.with_columns(
+        pl.when(bad)
+        .then(default_ad.cast(pl.Utf8))
+        .otherwise(pl.col("announce_date").cast(pl.Utf8).str.slice(0, 10))
+        .alias("announce_date")
+    )
 
 
 def load_fundamental_snapshot(data_dir: Path | None) -> pl.DataFrame | None:
@@ -62,12 +131,24 @@ def load_fundamental_snapshot(data_dir: Path | None) -> pl.DataFrame | None:
     if not needed.issubset(frame.columns):
         logger.warning("财务指标快照缺少列: %s", sorted(needed - set(frame.columns)))
         return None
-    snapshot = (
-        frame.select(sorted(needed))
-        .filter(
-            pl.col("symbol").is_not_null()
-            & pl.col("announce_date").is_not_null()
+    # period_end 用于消毒脏公告日; 不进入下游 snapshot 列集合
+    cols = sorted(needed | ({"period_end"} if "period_end" in frame.columns else set()))
+    prepared = sanitize_announce_dates(frame.select(cols))
+    prepared = prepared.filter(
+        pl.col("symbol").is_not_null() & pl.col("announce_date").is_not_null()
+    )
+    # 年报/一季报法定截止常同为 4/30: 同日保留 period_end 更新的一期
+    if "period_end" in prepared.columns:
+        prepared = (
+            prepared.with_columns(
+                pl.col("period_end").cast(pl.Utf8).str.slice(0, 10).str.to_date().alias("_pe")
+            )
+            .sort(["symbol", "announce_date", "_pe"])
+            .unique(subset=["symbol", "announce_date"], keep="last")
+            .drop("_pe")
         )
+    snapshot = (
+        prepared.select(sorted(needed))
         .with_columns(
             pl.col("announce_date").cast(pl.Utf8).str.slice(0, 10).str.to_date().alias("_announce")
         )

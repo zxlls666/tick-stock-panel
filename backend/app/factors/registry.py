@@ -220,8 +220,9 @@ _CATALOG: tuple[FactorSpec, ...] = (
     # --- 扩充批次 (2026-09-05): 规模/收益分解/长窗口/下行风险/量能潮/换手水平 ---
     _virtual(
         "log_float_mv", "流通市值对数", "规模",
-        "ln(收盘价 x 当日成交量 / 换手率), 由换手率反推流通股本, 高值代表大盘",
+        "ln(收盘价 x 当日成交量 / 换手率), 由换手率反推流通股本, 高值代表大盘; 换手率缺失或非正时为空",
         deps=frozenset({"close", "volume", "turnover_rate"}), scale_free=False,
+        pit=True, pit_source="share_capital_announce",
     ),
     _virtual(
         "momentum_120d", "120日动量", "动量",
@@ -297,6 +298,12 @@ _CATALOG: tuple[FactorSpec, ...] = (
         "kdj_kd_diff", "KDJ K-D差", "趋势",
         "KDJ K值 - D值, 正值代表快线在慢线上方",
         deps=frozenset({"kdj_k", "kdj_d"}),
+    ),
+    # --- 基本面基线 (2026-09-27): 追加于目录尾部, 前 48 项挖掘调度顺序不变 ---
+    _financial(
+        "ocf_to_ni_latest",
+        "经营现金流/归母净利(最新公告)",
+        "最新已公告经营现金流相对归母净利润(%), 取 metrics.net_profit_cash_content, 不除以 100; 无财务数据或公告前为空",
     ),
 )
 

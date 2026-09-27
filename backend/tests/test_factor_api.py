@@ -13,7 +13,7 @@ from app.api.factors import router
 
 @pytest.fixture()
 def cleanup_registry():
-    """测试注册的自定义因子在用例后注销, 不污染全局注册表 (快照测试依赖 77 基线)。"""
+    """测试注册的自定义因子在用例后注销, 不污染全局注册表 (快照测试依赖 78 基线)。"""
     created: set[str] = set()
     yield created
     from app.factors.registry import unregister_factor
