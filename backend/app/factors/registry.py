@@ -305,6 +305,14 @@ _CATALOG: tuple[FactorSpec, ...] = (
         "经营现金流/归母净利(最新公告)",
         "最新已公告经营现金流相对归母净利润(%), 取 metrics.net_profit_cash_content, 不除以 100; 无财务数据或公告前为空",
     ),
+    _virtual(
+        "abnormal_turnover_1m_12m", "1个月异常换手", "流动性",
+        "过去20日平均换手率 / 过去250日平均换手率; 分母非正或有效窗口不足时为空。"
+        "换手率优先使用公告日不晚于交易日的历史流通股本, 缺失时回退当前流通股本。"
+        "不是60日换手z分",
+        deps=frozenset({"turnover_rate"}), warmup_bars=251, stability="experimental",
+        asset_types=_STOCK_ONLY,
+    ),
 )
 
 _REGISTRY: dict[str, FactorSpec] = {}

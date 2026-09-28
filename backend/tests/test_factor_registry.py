@@ -100,6 +100,7 @@ GOLDEN_COLUMNS: list[dict] = [
     {"id": "distance_to_high_240d", "label": "距一年高点", "group": "价格位置", "desc": "收盘价 / 240日最高收盘价 - 1, 接近0代表贴近一年新高"},
     {"id": "kdj_kd_diff", "label": "KDJ K-D差", "group": "趋势", "desc": "KDJ K值 - D值, 正值代表快线在慢线上方"},
     {"id": "ocf_to_ni_latest", "label": "经营现金流/归母净利(最新公告)", "group": "财务", "desc": "最新已公告经营现金流相对归母净利润(%), 取 metrics.net_profit_cash_content, 不除以 100; 无财务数据或公告前为空"},
+    {"id": "abnormal_turnover_1m_12m", "label": "1个月异常换手", "group": "流动性", "desc": "过去20日平均换手率 / 过去250日平均换手率; 分母非正或有效窗口不足时为空。换手率优先使用公告日不晚于交易日的历史流通股本, 缺失时回退当前流通股本。不是60日换手z分"},
 ]
 
 GOLDEN_VIRTUAL_DEPS: dict[str, frozenset[str]] = {
@@ -154,6 +155,7 @@ GOLDEN_VIRTUAL_DEPS: dict[str, frozenset[str]] = {
     "position_240d": frozenset({"close"}),
     "distance_to_high_240d": frozenset({"close"}),
     "kdj_kd_diff": frozenset({"kdj_k", "kdj_d"}),
+    "abnormal_turnover_1m_12m": frozenset({"turnover_rate"}),
 }
 
 GOLDEN_WARMUP: dict[str, int] = {
@@ -183,6 +185,7 @@ GOLDEN_WARMUP: dict[str, int] = {
     "turnover_std_20d": 21,
     "position_240d": 241,
     "distance_to_high_240d": 241,
+    "abnormal_turnover_1m_12m": 251,
 }
 
 @pytest.fixture(autouse=True)
@@ -231,10 +234,10 @@ def test_scoring_warmup_snapshot() -> None:
 
 def test_catalog_counts_and_kinds() -> None:
     specs = all_factors()
-    assert len(specs) == 78
-    assert len({spec.id for spec in specs}) == 78  # id 唯一
+    assert len(specs) == 79
+    assert len({spec.id for spec in specs}) == 79  # id 唯一
     virtual = [spec for spec in specs if spec.kind == "virtual"]
-    assert len(virtual) == 52  # ma/ema 10 + 原有 26 + 扩充批次 16
+    assert len(virtual) == 53  # ma/ema 10 + 原有 26 + 扩充批次 16 + 异常换手 1
     financial = [spec for spec in specs if spec.pit_source == "financial_announce"]
     assert len(financial) == 8
     assert all(spec.pit for spec in financial)
@@ -267,8 +270,8 @@ def test_get_factor_and_dependencies() -> None:
 def test_asset_type_filter() -> None:
     stock = all_factors(asset_type="stock")
     etf = all_factors(asset_type="etf")
-    assert len(stock) == 78
-    assert len(etf) == 70  # 财务 8 项仅股票
+    assert len(stock) == 79
+    assert len(etf) == 70  # 财务 8 项 + 异常换手 1 项仅股票
 
 
 def test_register_factor_rejects_duplicate() -> None:
@@ -315,7 +318,7 @@ def test_factors_api_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     factors = payload["factors"]
-    assert len(factors) == 78
+    assert len(factors) == 79
     first = factors[0]
     assert first["id"] == "momentum_5d"
     assert first["kind"] == "base"

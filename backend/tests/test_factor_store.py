@@ -76,13 +76,13 @@ def test_custom_factor_definition_roundtrip(tmp_path, cleanup_registry) -> None:
 
     # 目录视图与 all_factors 追加动态因子
     ids = [item["id"] for item in factor_columns_view()]
-    assert ids[:78] == [item["id"] for item in factor_columns_view()[:78]]
-    assert "uf_test_rev" in ids and ids.index("uf_test_rev") >= 78
+    assert ids[:79] == [item["id"] for item in factor_columns_view()[:79]]
+    assert "uf_test_rev" in ids and ids.index("uf_test_rev") >= 79
     assert any(s.id == "uf_test_rev" for s in all_factors())
 
-    # 快照约束不受影响: 未注册动态因子时目录 = 78 内置
+    # 快照约束不受影响: 未注册动态因子时目录 = 79 内置
     unregister_factor("uf_test_rev")
-    assert len(factor_columns_view()) == 78
+    assert len(factor_columns_view()) == 79
 
 
 def test_custom_factor_invalid_rejected(cleanup_registry) -> None:

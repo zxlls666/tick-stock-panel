@@ -242,6 +242,10 @@ def scoring_value_expr(columns: Collection[str], name: str) -> pl.Expr | None:
         return (pl.col("amount") / 1e8).rolling_mean(20, min_samples=20).over("symbol")
     if name == "turnover_mean_20d":
         return pl.col("turnover_rate").rolling_mean(20, min_samples=20).over("symbol")
+    if name == "abnormal_turnover_1m_12m":
+        short = pl.col("turnover_rate").rolling_mean(20, min_samples=20)
+        long = pl.col("turnover_rate").rolling_mean(250, min_samples=250)
+        return pl.when(long > 0).then(short / long).otherwise(None).over("symbol")
     if name == "turnover_std_20d":
         mean = pl.col("turnover_rate").rolling_mean(20, min_samples=20)
         std = pl.col("turnover_rate").rolling_std(20, min_samples=20)

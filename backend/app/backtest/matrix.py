@@ -3773,6 +3773,7 @@ _MATRIX_COMPUTED_FEATURES = frozenset({
     "overnight_ret_20d", "intraday_ret_20d", "downside_vol_20d",
     "vol_regime_5_60", "amplitude_trend_20_60", "obv_trend_20d",
     "amount_mean_20d", "turnover_mean_20d", "turnover_std_20d",
+    "abnormal_turnover_1m_12m",
     "position_240d", "distance_to_high_240d", "kdj_kd_diff",
 })
 
@@ -4091,6 +4092,14 @@ def _compute_matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
         if name == "turnover_mean_20d":
             return mean
         return _matrix_ratio(valid_rolling_std(turnover, valid, 20, ddof=1), mean)
+    if name == "abnormal_turnover_1m_12m":
+        turnover = market.field("turnover_rate")
+        valid = np.isfinite(turnover)
+        short = valid_rolling_mean(turnover, valid, 20)
+        long = valid_rolling_mean(turnover, valid, 250)
+        ratio = _matrix_ratio(short, long)
+        ratio[np.isfinite(long) & (long <= 0)] = np.nan
+        return ratio
     if name == "position_240d":
         high = valid_rolling_max(market.close, close_valid, 240)
         low = valid_rolling_min(market.close, close_valid, 240)
