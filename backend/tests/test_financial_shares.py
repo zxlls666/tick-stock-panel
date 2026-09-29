@@ -177,3 +177,73 @@ def test_data_status_includes_share_history(tmp_path):
     assert result is not None
     assert result["rows"] == 3
     assert result["tables"]["shares"] == {"rows": 3, "symbols": 2}
+
+
+def test_apply_historical_float_shares_default_still_falls_back_to_current():
+    from app.share_capital import apply_historical_float_shares
+
+    today = date(2026, 7, 18)
+    rows = pl.DataFrame({
+        "symbol": ["600000.SH", "600000.SH", "600000.SH", "600000.SH"],
+        "date": [
+            date(2024, 3, 31),
+            date(2024, 4, 15),
+            date(2024, 6, 30),
+            today,
+        ],
+        "float_shares": [200_000_000.0] * 4,
+    })
+    shares = pl.DataFrame({
+        "symbol": ["600000.SH", "600000.SH"],
+        "period_end": ["2023-12-31", "2024-06-30"],
+        "announce_date": ["2024-04-15", None],
+        "float_shares": [100_000_000.0, 50_000_000.0],
+    })
+
+    result = apply_historical_float_shares(rows, shares, today=today)
+
+    assert result["float_shares"].to_list() == pytest.approx(
+        [200_000_000.0, 100_000_000.0, 50_000_000.0, 200_000_000.0]
+    )
+    assert result["float_shares_source"].to_list() == [
+        "current_fallback",
+        "historical_pit",
+        "historical_pit",
+        "current_day",
+    ]
+
+
+def test_apply_historical_float_shares_strict_nulls_missing_history():
+    from app.share_capital import apply_historical_float_shares
+
+    today = date(2026, 7, 18)
+    rows = pl.DataFrame({
+        "symbol": ["600000.SH", "600000.SH", "600000.SH", "600000.SH"],
+        "date": [
+            date(2024, 3, 31),
+            date(2024, 4, 15),
+            date(2024, 6, 30),
+            today,
+        ],
+        "float_shares": [200_000_000.0] * 4,
+    })
+    shares = pl.DataFrame({
+        "symbol": ["600000.SH", "600000.SH"],
+        "period_end": ["2023-12-31", "2024-06-30"],
+        "announce_date": ["2024-04-15", None],
+        "float_shares": [100_000_000.0, 50_000_000.0],
+    })
+
+    result = apply_historical_float_shares(rows, shares, today=today, strict=True)
+
+    assert result["float_shares"].to_list()[0] is None
+    assert result["float_shares"].to_list()[1:] == pytest.approx(
+        [100_000_000.0, 50_000_000.0, 200_000_000.0]
+    )
+    assert result["float_shares_source"].to_list() == [
+        "missing",
+        "historical_pit",
+        "historical_pit",
+        "current_day",
+    ]
+    assert (result["float_shares_source"] == "current_fallback").sum() == 0

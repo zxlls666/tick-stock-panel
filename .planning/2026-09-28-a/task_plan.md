@@ -2,15 +2,17 @@
 
 ## Goal
 
+> 后续偏差修复与执行现实性升级的权威执行文档：[`research-data-bias-and-execution-realism-plan.md`](research-data-bias-and-execution-realism-plan.md)。该文档覆盖退市样本、历史 ST、严格 PIT 股本、指数基准、容量/冲击和排队代理的阶段计划及验收门槛。
+
 截至 2026-09-28，逐项判断报告策略是否已在 TSP 中同口径实现，并为缺失项形成可执行、无未来函数的研究规格；本轮不新增生产策略或数据源。
 
 ## Next Step
 
-读取完整历史验证产物 `data/research/a_share_strategy_validation/20260928T-full-history-v1/`，优先推进异常换手原始月频与月频反转的无偏股票池/历史 ST/基准对照；五切片反转暂停扩展。E/P、股息率继续等待数据契约。
+Phase 0–4 已完成。两条异常换手升级为 `bias_reduced_candidate`，但继续 `research_only`，下一步仅进入人工评审或 paper-only 样本外观察；月频反转已暂停。Phase 5 继续受分钟/Level-2 数据门控。E/P、股息率继续等待可信 PIT 数据契约。
 
 ## Current Phase
 
-Phase 7
+Phase 10 in progress: paper-only OOS observer CLI; Phase 5 remains blocked by minute/Level-2 data
 
 ## Phases
 
@@ -66,6 +68,25 @@ Phase 7
 - [x] 形成稳定性判断与停止规则结论
 - **Status:** completed
 
+### Phase 9: Bias repair and execution realism
+- [x] 冻结快照、补齐基准并关闭 strict PIT 当前股本回退
+- [x] 建立前复权退市行情、SH/SZ PIT ST、逐日 universe 和历史涨跌停
+- [x] 重跑退市 100%/70%/0% 恢复率瀑布并暂停月频反转
+- [x] 增加 t-1 ADV20 容量、平方根冲击、四档资金和三档 queue proxy
+- [x] 完成完整 universe 的成本、子时期、参数、年度贡献和最终发布门
+- **Status:** completed
+
+### Phase 10: Paper-only OOS observer
+- [x] 新增手动/外部调度共用的单次 CLI，不实现常驻调度器
+- [x] 冻结 OOS 起点、20/250 窗口、Top 20、raw/size-neutral 和 primary/stress 四账户
+- [x] 使用交易日历识别已完成月末，避免依赖未来一根行情
+- [x] 每次从冻结点重放到 `--as-of`，输出不可覆盖 observation、manifest、信号、目标权重、账户、月度指标、组合重合度和质量审计
+- [x] strict PIT 当前股本回退非零、数据 generation 漂移、输入覆盖不足或 observation 已存在时 fail-closed
+- [x] 完成 RED/GREEN、历史边界 dry-run、Ruff 和回归验证
+- [x] 完整日行情、同日 instruments、ST/退市覆盖更新后生成首个成功 observation
+- [ ] 9 月 30 日收盘后生成首个月末信号，并在下一交易日开盘影子执行
+- **Status:** implemented; first cash-only observation completed, first rebalance pending month-end
+
 ## Decisions Made
 
 | Decision | Rationale |
@@ -78,7 +99,11 @@ Phase 7
 | 低波组合不等同 `low_volatility_leader` | 现有策略核心是正动量和均线过滤，且缺 E/P/股息/质量合成 |
 | 小市值不直接发布 | 当前缺退市样本与历史 ST，且报告要求先剔除最小 30% 壳股 |
 | 五切片反转暂停扩展 | 40 bps 后总收益转负、早期子时期为负、10 日参数方向翻转 |
-| 月频反转与异常换手仅判 internally stable | 成本/子时期/相邻参数方向稳定，但股票池、历史 ST、PIT 股本与基准比较尚未闭环 |
+| 月频反转停止 | 加入 PIT ST/退市后 base 为 -64.23%，70%/0% 恢复方向翻转，74 个退市持仓事件 |
+| 两条异常换手升级为 bias_reduced_candidate | 通过退市/ST、40 bps、三个子时期、相邻参数、年度贡献和 1000 万最保守容量/冲击门，但仍保持 research_only |
+| 日线执行只称 queue proxy | optimistic/base/conservative 是确定性日线边界，不是 Level-2 队列概率 |
+| OOS observer 先做单次 CLI | 手动验证与未来外部调度复用同一条执行路径；脚本内部不常驻、不写 cron、不发真实订单 |
+| OOS 每次从冻结点重放 | 当前日线规模下更简单、可复算，避免引入持久订单簿和增量状态迁移 |
 
 ## Errors Encountered
 

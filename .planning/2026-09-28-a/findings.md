@@ -144,6 +144,78 @@
 - `abnormal_turnover_monthly_size_neutral` 同样内部稳定，但弱于原始版本：base 年化 21.92%、Sharpe 0.86、最大回撤 -46.84%；说明当前结果并非完全由规模暴露解释，但规模中性没有改善风险收益。
 - 以上结论只表示当前数据内 `internally_stable`，不表示无偏或可发布；幸存者偏差、历史 ST 缺失、退市样本缺失和流通股本回退仍可能显著改变结论。
 
+## Phase 0–1 偏差修复结果（2026-09-28）
+
+- Phase 0 基线快照已冻结：`data_generation=0b7900c875e347088914a263585b81e5`；重复审计指纹均为 `4d81b8422ff735c0ba74ce6cf37f363f0fc19a949e531c2f48ff4e861a2c9b22`。
+- 四只基准指数 `000985.SH`、`000300.SH`、`000905.SH`、`000852.SH` 均已回填至 `2019-01-02..2026-09-24`，各 1,877 行；策略正式交易日无缺失。
+- strict PIT 模式下 `current_fallback_count=0`，生产默认回退行为保持不变。
+- `reversal_monthly` 不依赖流通股本，legacy→strict 总收益保持 +131.67%；相对中证全指超额 +109.78%，IR 0.64。
+- `abnormal_turnover_monthly_raw` 对未来股本回填较敏感：总收益由 +230.19% 降至 +201.26%（-28.93pp），但相对中证全指超额仍为 +197.89%，IR 1.42。
+- `abnormal_turnover_monthly_size_neutral` 仅下降 0.52pp；相对中证全指超额 +155.15%，IR 1.18。
+- 三条候选均未触发 Phase 1 研究停止条件，但退市/ST 未闭环前继续保持 `research_only`。
+- `missing_count=919130` 是稠密 `1466 × 5569` 矩阵的空单元格，占 11.26%；它包含未上市、已无行情等结构性空位，不代表 919,130 条实际行情缺 PIT 股本。实际行情覆盖应继续使用逐行审计口径。
+- 独立复核的定向测试为 `17 passed`；代码质量门尚有 16 个 Ruff finding，均为导入整理、未使用导入和中文 docstring 标点，应在 Phase 2 前最小修复。
+
+## Phase 2 退市/ST 与逐日 universe 发现（2026-09-28）
+
+- BaoStock 正式退市数据：研究区间 212 只，210 只有可交易日 K，2 只无数据（`600485.SH`、`600677.SH`），0 下载错误；152,026 条日 K，标的覆盖 99.06%。
+- BaoStock 全市场 SH/SZ 日度 `isST` 已以断点续传方式完成：5,434 只全部 loaded、0 error；压缩后 6,495 个状态变化点，其中 751 个进入 ST 的变化点。
+- 生产 instruments 已保留大量退市证券名称，但没有可用退市日；研究维表必须按 symbol 用 BaoStock 日期覆盖，不能把同一证券简单追加两次。
+- 生产 enriched 轴的 5,569 只股票全部能在合并研究维表中找到；另有 210 只退市行情资产不在生产 enriched 轴，联合后为 5,779 只。
+- 完整区间联合日观察为 7,398,095 条，`(symbol,date)` 无重复；逐日过滤顺序固定为上市 → 未退市 → ST known → 非 ST → 上市满 6 月 → observation/PIT gate。
+- SH/SZ 实际日观察的 ST unknown 为 0。所有 269,940 个 unknown 日观察均来自 347 只 BJ 股票；严格研究已 fail-closed 排除，不能声称全 A 股 ST 闭环。
+- 首个交易日漏斗：listed 4,019 → ST known 3,990 → not ST 3,779 → seasoned 3,576 → eligible 3,558。末日：listed 5,779 → not delisted 5,569 → ST known 5,222 → not ST 5,021 → seasoned 4,972 → eligible 4,965。
+- 210 个退市行情资产中 200 个在当前 observation-only gate 下曾 eligible；这只证明 universe 接线可覆盖退市资产，不代表已有可比较因子或真实策略入选。
+- `adj_factor=1.0` 仍只表示未复权原始价格。复权口径没有与生产 enriched 对齐前，不运行或发布“加入退市后”的正式策略收益。
+- 研究路径现在可以用 PIT ST 状态生成逐日 `price_limit_pct`，并在研究副本中重算涨跌停锁定；生产矩阵和当前名称逻辑不被修改。非 eligible 单元也可在截面排序前统一置空。
+- 正式审计产物：`data/research/a_share_universe/20260928T-phase2-universe-audit-v1/`。
+
+## Phase 2 正式收益瀑布发现（2026-09-28）
+
+- 正式产物：`data/research/a_share_strategy_validation/20260928T-phase2-waterfall-v2/`。15 条账户路径分别重跑 `strict PIT → PIT ST → 加退市/100% → 70% → 0%`；没有事后扣减。
+- PIT ST/universe 本身对三策略都有显著影响：raw 异常换手 -70.53pp、规模中性 -62.94pp、月频反转 -75.42pp，说明此前使用当前名称/无历史 ST 的口径系统性高估结果。
+- 加入退市资产后，异常换手只产生 1 次退市持仓，100%→0% 恢复的总收益影响约 -9.83pp（raw）和 -8.85pp（规模中性）；两者最保守场景仍保持正绝对收益、正中证全指超额和正 IR。
+- 月频反转暴露 74 次退市持仓。即使 100% 按最后有效价格回收，总收益也仅 +9.32%、相对中证全指超额 -1.01%；70% 恢复变为 -64.23%，0% 恢复为 -98.40%。该策略依赖退市尾部资产，不能继续称 internally stable，按停止规则暂停。
+- `phase2-waterfall-v1` 不可用于结论：规模中性路径沿用了基于前复权 close 的通用 `log_float_mv`。v2 将研究 SSOT 固定为 `log(PIT float_shares × raw_close)`。
+- 当前结论仍不是可发布策略：异常换手年化单边换手约 8.3–8.7 倍，尚未经过 ADV20 容量、平方根冲击和 queue proxy；三策略全部保持 `research_only`。
+
+## Phase 3 容量、冲击与日线 queue proxy 发现（2026-09-28）
+
+- 正式产物：`data/research/a_share_strategy_validation/20260928T-phase3-capacity-v2/`；参数是计划预先冻结的 1%/2%/5%/10% ADV、eta 0.10/0.25/0.50、三档 queue proxy 和 100万/1000万/5000万/1亿资金，没有按结果挑选参数。
+- 1000 万最保守组合下，raw 异常换手仍有 +87.94% 总收益、+85.84% 中证全指超额、IR 0.89；规模中性为 +71.63%、+69.71%、IR 0.79。两者通过计划中的“1000 万容量/冲击后方向不翻转”门槛。
+- 容量约束不是无关紧要：1000 万下全网格最大未成交率达到 40.88%（raw）和 37.80%（规模中性），最慢清仓 17/11 天；1 亿最严场景未成交率约 87%/86%。因此当前收益不能解释为可无限扩容。
+- 所有实际成交金额均未超过配置的 `participation × t-1 ADV20`；eta 增大时冲击成本单调不减，资金增大时同场景未成交比例不下降。
+- conservative queue 相比 base/optimistic 更严格，但仍只是日线锁板边界；没有分钟或 Level-2 数据时，不能把结果称为真实排队成交概率。
+- 异常换手两版可进入 Phase 4 最终发布门；月频反转已在 Phase 2 停止，不应因 Phase 3 未运行而恢复候选资格。
+
+## Phase 4 最终发布门结论（2026-09-28）
+
+- 正式产物：`data/research/a_share_strategy_validation/20260928T-phase4-final-v3/`。Phase 1–3 的 `legacy → strict PIT → PIT ST → 退市 70% → 1000 万最保守容量/冲击` 已汇总为 `bias_waterfall.parquet`；双 universe funnel、1000 万 capacity summary 及输入/输出 SHA-256 也已内置。
+- `abnormal_turnover_monthly_raw` 通过全部冻结门，升级为 `bias_reduced_candidate`：完整 universe base +127.48%、20 bps +108.71%、40 bps +78.19%；三个子时期超额均为正，相邻参数均为正，1000 万最保守场景仍 +87.94%。
+- `abnormal_turnover_monthly_size_neutral` 同样通过：base +107.79%、20 bps +90.00%、40 bps +61.58%；1000 万最保守场景 +71.63%。它弱于 raw 版，说明规模中性并未提高当前风险收益，但证明结果不完全由规模暴露解释。
+- `reversal_monthly` 正式停止：完整 universe base -64.23%、20 bps -70.45%、40 bps -78.58%；早/中/晚三个子时期超额全部为负，Top-N 和 10/30 日窗口全部为负。原 `internally_stable` 判断已被偏差修复推翻。
+- 异常换手的年度主动收益并非单一年份贡献，但 2026 年截至 9 月 raw 为 -3.97%、规模中性 -4.97%；升级 verdict 不代表当前仍持续有效，必须继续样本外跟踪。
+- `bias_reduced_candidate` 仍然不是公开选股或生产上线许可。北京市场 PIT ST 仍缺、queue 仍是日线 proxy、分钟/Level-2 仍 blocked；策略继续 `research_only`。
+
+## Phase 10 样本外观察实现发现（2026-09-29）
+
+- OOS observer 已实现为不可覆盖的一次性 CLI，而不是常驻服务；手动和未来外部调度必须执行完全相同的命令路径。
+- 固定从 `2026-09-25` 重放可避免中途重启时把历史目标带入新现金账户；Stress 的 20 日 ADV/波动输入通过 OOS 前预热 bars 提供，预热日不进入收益、换手或基准统计。
+- 实时月末不能使用需要看到下月行情的样本内 `month_end_mask()`；当前实现以冻结交易日历确认月末，并把下一交易日写入 pending target。
+- raw 与 size-neutral 分开记账，并新增月度账户指标和月末持仓 Jaccard 重合度；短期盈亏仍不得用于修改参数或拼接旧净值。
+- 输入 SSOT 均显式哈希：股票 generation、同日 instruments、PIT 股本、历史 ST、退市覆盖、退市前复权行情和交易日历；任何覆盖不足均 fail-closed。
+- 当前真实运行尚不具备成功条件：`2026-09-28` 行情末分区只有 3,152 个有效 close，近 20 日基线约 5,550；ST 只覆盖至 `2026-09-24`；instruments 已滚动到 `2026-09-29`。因此不能伪造首个 OOS observation。
+- 调度前置结论：先手动运行并核对 1–2 个完整换仓周期；之后只需外部 cron/launchd 调用同一 CLI。上游日线、instruments、ST 和退市覆盖必须先原子对齐，否则 observer 会拒绝运行。
+
+## 首次 OOS 闭环取证（2026-09-29）
+
+- 上游数据不完整并非 observer 自身造成：盘前 instruments 曾有 5,881 只，但早先盘后同步把 instruments 缩为 3,413 只，随后仅写入 3,152 只 9 月 28 日行情。官方 repair 重拉后 instruments=5,882，9 月 28/29 日线恢复为 5,557/5,559 只。
+- `build_a_share_st_history.py --resume` 原实现只复用缓存、不延长日期；若直接修改 `--end` 会产生虚假 manifest 覆盖。现已改为逐股从缓存末日增量拉取，并由测试锁定去重追加行为。
+- 截至 9 月 29 日，BaoStock 退市元数据与冻结 adjusted-v2 的 212 只集合和关键字段完全一致，无需重抓/重算退市历史 K；覆盖证明已单独落盘并哈希。
+- observer 局部历史只加载约 500 天，因此退市 bars 也必须先裁剪到同一日期轴；共享 `append_research_bars()` 保持严格拒绝轴外日期。
+- 策略尚未形成首个目标时，现金相对下跌基准的收益不应报告为策略 alpha。正式口径从首个 `target_exposure > 0` 的日期才开始计算主动收益、IR 和月度策略指标。
+- `as_of=2026-09-29` 正式包是系统闭环证明而非策略业绩：四账户全现金、0 信号、0 target，excess/IR 为 `not started`。首个可交易信号仍需等待 9 月 30 日收盘。
+
 ## Resources
 
 - 本地报告：`/Users/serge/Desktop/A股交易策略研究报告.html`
