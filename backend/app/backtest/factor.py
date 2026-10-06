@@ -661,6 +661,13 @@ class FactorBacktestService:
         if factor_cols & ext_factors.ext_factor_ids():
             panel = ext_factors.attach_ext_columns(panel, include_snapshot=False)
 
+        # 第三方 TA 指标 (可选 extra `ta`): 与 ext 同原语 —— 请求命中时在此算列注入,
+        # 未安装时 ta_factor_ids() 为空, 请求落到下方内置补算路径并按缺列报错。
+        from app.factors import ta_factors
+
+        if ta_cols := factor_cols & ta_factors.ta_factor_ids():
+            panel = ta_factors.attach_ta_columns(panel, needed=ta_cols)
+
         from app.factors.registry import get_factor
         from app.indicators.pipeline import compute_indicators
 

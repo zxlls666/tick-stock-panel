@@ -57,6 +57,14 @@ backtest = [
     "vectorbt>=0.26",
 ]
 
+# 第三方 TA 指标 (polars-talib, MIT): 仅因子适配层 (app/factors/ta_factors.py) 可选使用,
+# 为内置流水线补充 ADX/CCI/Williams %R/OBV 等缺口指标并提供 parity 对照基线。
+# 未安装时 ta_factors 全量 no-op, 主流程与既有因子不受影响 (对齐 CONTRIBUTING §2.1)。
+# 启用:`uv sync --extra ta`
+ta = [
+    "polars-talib>=0.2",
+]
+
 # 桌面客户端依赖: pywebview 桌面窗口。打包用 (PyInstaller), 生产/Docker 不需要。
 # 启用:`uv sync --extra desktop`
 desktop = [

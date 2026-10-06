@@ -57,6 +57,11 @@ def _isolate_runtime_ext_factors(tmp_path, monkeypatch):
     ext_factors._sync_state = None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_ta_factors(isolate_ta_factors):
+    """第三方 TA 因子 (可选 extra `ta`) 分离 (夹具实现见 tests/conftest.py)。"""
+    yield
+
 
 def test_custom_factor_definition_roundtrip(tmp_path, cleanup_registry) -> None:
     definition = {

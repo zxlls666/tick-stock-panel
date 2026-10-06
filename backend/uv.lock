@@ -1579,6 +1579,25 @@ wheels = [
 ]
 
 [[package]]
+name = "polars-talib"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "polars" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/97/63cf39dc9a7f083d5e1ed0dce395079ba0df3baa6fb3834c03f0beb2b5ca/polars_talib-0.2.0.tar.gz", hash = "sha256:0018d40bdab4b5f9e5a2e83f0d2f19b74c4868a5a33ea6548ca3ee1e5991558e", size = 2798613, upload-time = "2026-09-23T05:05:08.05Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/2d/ef8fe10856b9c88b49c6b2e3c63ceb9acacc6fe41f0f29ba370a08517e76/polars_talib-0.2.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:fc2ef3926002f0510d3732e3d8bd24b612c885ec0b51afc18afedd209f8ac3c1", size = 4170671, upload-time = "2026-09-23T05:04:52.125Z" },
+    { url = "https://files.pythonhosted.org/packages/31/aa/7eb29a3dc60a1a303b1797c3bde656bcb026527324c4e4f40b4f3e13f35a/polars_talib-0.2.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:c8dba0ce264c28c8f5ea8612a32f44ace647fcae851624b242c906b1e101b973", size = 3907650, upload-time = "2026-09-23T05:04:54.09Z" },
+    { url = "https://files.pythonhosted.org/packages/84/66/0e268e4fa3a3cb64293bad85c80ad8d8845b36cbba2cd5b3959db4aa396d/polars_talib-0.2.0-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:0b6e45f6431d35296c9d5755f7f13ad25c6e1d762d8deeb656f429c1f00c2759", size = 4598100, upload-time = "2026-09-23T05:04:56.082Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/9f/809952e54263342328158bc4eb82c4ff7252a32ad39a18d2af15f7b67d77/polars_talib-0.2.0-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1aeec0930827ebec9321f0c23028cc9223fa90ad18dd9dc2c9f189c04b07c293", size = 4947736, upload-time = "2026-09-23T05:04:58.039Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/41/7845607e7303839b49fee30b7fe8cda173a9488f8c8aee6899e0101da7e6/polars_talib-0.2.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:15665888ab2dcd4d5de56a9cad70fff9b9fef2cfefb84f94ecca3cf8db795261", size = 4752296, upload-time = "2026-09-23T05:05:00.545Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/f0/ddfcfed977d0b51210a14ea91784fb0aa3b6e8455ad005bc517c987f2808/polars_talib-0.2.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:54c8d8358bceb7e984492ccdc2b0e62816f94c154e6775d07cdb745c0d09dd07", size = 4989864, upload-time = "2026-09-23T05:05:02.695Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/0d/28f4508f8c7f69dcd735ab7c8a4cab7b073b57868d23d6ac044b78b2f87e/polars_talib-0.2.0-cp310-abi3-win_amd64.whl", hash = "sha256:049631dd43585791f1d35c324874d162f1d1b8ecaedc7ddda464181d4303b987", size = 3957888, upload-time = "2026-09-23T05:05:04.622Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/e0/5e7b17bce143b621e82e916e0ef8f916af8302c900af9694502ef1aa6b8e/polars_talib-0.2.0-cp310-abi3-win_arm64.whl", hash = "sha256:5e77108760dad2b14dc633d9269957fb808195d851150557346933ee15c9b678", size = 3474882, upload-time = "2026-09-23T05:05:06.342Z" },
+]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.52"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -2559,6 +2578,9 @@ dev = [
 legacy-cpu = [
     { name = "polars", extra = ["rtcompat"] },
 ]
+ta = [
+    { name = "polars-talib" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2576,6 +2598,7 @@ requires-dist = [
     { name = "plyer", specifier = ">=2.1" },
     { name = "polars", specifier = ">=1.44,<1.45" },
     { name = "polars", extras = ["rtcompat"], marker = "extra == 'legacy-cpu'", specifier = ">=1.44,<1.45" },
+    { name = "polars-talib", marker = "extra == 'ta'", specifier = ">=0.2" },
     { name = "psutil", specifier = ">=5.9" },
     { name = "pyarrow", specifier = ">=16.0" },
     { name = "pydantic", specifier = ">=2.7" },
@@ -2595,7 +2618,7 @@ requires-dist = [
     { name = "vectorbt", marker = "extra == 'backtest'", specifier = ">=0.26" },
     { name = "winotify", marker = "sys_platform == 'win32'", specifier = ">=1.1" },
 ]
-provides-extras = ["legacy-cpu", "backtest", "desktop", "dev"]
+provides-extras = ["legacy-cpu", "backtest", "ta", "desktop", "dev"]
 
 [[package]]
 name = "tqdm"

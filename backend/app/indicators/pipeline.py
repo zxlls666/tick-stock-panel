@@ -670,10 +670,26 @@ def compute_signals(df: pl.DataFrame, needed: set[str] | None = None) -> pl.Data
     # 扩展表数值列先行 join (ext_ 因子列 = 帧上已有列): 信号条件与评分引用
     # 都按列存在性解析。历史多日帧仅注入时序模式 —— 快照代表"最新值",
     # 历史回看注入会引入未来数据 (CONTRIBUTING §5.3)。
-    from app.factors import ext_factors
-    df = ext_factors.attach_ext_columns(df, include_snapshot=False)
-    # 条件引用的注册表因子列先复用评分物化管线补算 (虚拟/自定义/复合均可)。
+    from app.factors import ext_factors, ta_factors
     from app.strategy import custom_signals
+
+    df = ext_factors.attach_ext_columns(df, include_snapshot=False)
+    # 第三方 TA 指标列 (可选 extra `ta`; 未安装/无引用时 no-op): 只算被 needed 或自定义
+    # 信号引用的 TA 因子, 与 ext 的无条件注入等效, 但不引入无关计算开销。
+    if ta_factors.available():
+        ta_ids = ta_factors.ta_factor_ids()
+        referenced = {
+            root
+            for roots in custom_signals.expression_dependencies(
+                _get_custom_signal_exprs()
+            ).values()
+            for root in roots
+        }
+        df = ta_factors.attach_ta_columns(
+            df,
+            needed=(((set(needed) if needed is not None else set()) | referenced) & ta_ids),
+        )
+    # 条件引用的注册表因子列先复用评分物化管线补算 (虚拟/自定义/复合均可)。
     exprs = _get_custom_signal_exprs()
     df = custom_signals.materialize_factor_columns(df, exprs, needed=needed)
     df = custom_signals.inject(df, exprs, needed=needed)

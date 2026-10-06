@@ -208,6 +208,12 @@ def _isolate_runtime_ext_factors(tmp_path, monkeypatch):
     ext_factors._sync_state = None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_ta_factors(isolate_ta_factors):
+    """第三方 TA 因子 (可选 extra `ta`) 分离 (夹具实现见 tests/conftest.py), 使内置
+    目录计数/顺序黄金断言在安装/未安装 extra 两种环境下都确定。"""
+    yield
+
 
 def test_factor_columns_snapshot() -> None:
     """注册表生成的 FACTOR_COLUMNS 与收口前字面量逐项一致 (含顺序)。"""
