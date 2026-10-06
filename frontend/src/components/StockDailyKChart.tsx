@@ -1,12 +1,14 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { type KlineRow } from '@/lib/api'
+import { api, type KlineRow } from '@/lib/api'
 import { klineDailyQueryOptions } from '@/lib/kline'
+import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import {
   EChartsCandlestick,
   OVERLAY_INDICATORS,
   SUB_CHARTS,
+  TA_SUB_CHARTS,
   type ChartMarker,
   type ChartPriceLine,
   type ChartRange,
@@ -76,6 +78,14 @@ export function toOHLC(rows: KlineRow[]): OHLC[] {
       kdj_j: r.kdj_j != null ? Number(r.kdj_j) : null,
       boll_upper: r.boll_upper != null ? Number(r.boll_upper) : null,
       boll_lower: r.boll_lower != null ? Number(r.boll_lower) : null,
+      ta_adx_14: r.ta_adx_14 != null ? Number(r.ta_adx_14) : null,
+      ta_cci_14: r.ta_cci_14 != null ? Number(r.ta_cci_14) : null,
+      ta_willr_14: r.ta_willr_14 != null ? Number(r.ta_willr_14) : null,
+      ta_stoch_k: r.ta_stoch_k != null ? Number(r.ta_stoch_k) : null,
+      ta_stoch_d: r.ta_stoch_d != null ? Number(r.ta_stoch_d) : null,
+      ta_aroon_up: r.ta_aroon_up != null ? Number(r.ta_aroon_up) : null,
+      ta_aroon_down: r.ta_aroon_down != null ? Number(r.ta_aroon_down) : null,
+      ta_obv: r.ta_obv != null ? Number(r.ta_obv) : null,
     }))
 }
 
@@ -128,8 +138,28 @@ export function StockDailyKChart({
   )
   const dateRange = externalDateRange ?? getDefaultRange()
 
+  // 已开启的第三方 TA 子图对应的数据列 (逗号分隔); 未开启时为空 → 请求与 cache key 不变
+  const taColumns = useMemo(
+    () => activeIndicators
+      .map(k => TA_SUB_CHARTS.find(s => s.key === k)?.column)
+      .filter((c): c is string => !!c)
+      .join(','),
+    [activeIndicators],
+  )
+
   // 查询配置统一来自 klineDailyQueryOptions, 与 StockPanel 信息条/邻近预取共享同一 cache key (只发一次请求)
-  const kline = useQuery({ ...klineDailyQueryOptions(symbol, dateRange, extColumns), enabled: !!symbol })
+  const kline = useQuery({
+    ...klineDailyQueryOptions(symbol, dateRange, extColumns, taColumns || undefined),
+    enabled: !!symbol,
+  })
+
+  // TA 能力门控: 后端未装可选 extra `ta` 时因子库无 ta_ 条目, 不显示 TA 开关
+  const taCap = useQuery({
+    queryKey: QK.factorLibrary('stock'),
+    queryFn: () => api.factorLibrary('stock'),
+    staleTime: 5 * 60_000,
+  })
+  const taSubCharts = (taCap.data?.factors ?? []).some(f => f.id.startsWith('ta_')) ? TA_SUB_CHARTS : []
 
   const rows = useMemo(() => toOHLC(kline.data?.rows ?? []), [kline.data?.rows])
   const stockInfo = kline.data?.stock_info
@@ -165,7 +195,7 @@ export function StockDailyKChart({
     <div className={className} style={{ minHeight: chartHeight }}>
       {showIndicatorControls && rows.length > 0 && (
         <div className="flex items-center gap-1.5 px-1 pb-0.5">
-          {SUB_CHARTS.map(ind => (
+          {[...SUB_CHARTS, ...taSubCharts].map(ind => (
             <button
               key={ind.key}
               onClick={() => toggleIndicator(ind.key)}
@@ -259,6 +289,7 @@ export function StockDailyKChart({
           visibleBars={visibleBars}
           activeIndicators={activeIndicators}
           volumeCompare={volumeCompare}
+          extraSubCharts={taSubCharts}
         />
       )}
     </div>

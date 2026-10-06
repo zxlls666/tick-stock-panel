@@ -273,6 +273,15 @@ export interface KlineRow {
   macd_hist?: number | null
   rsi_14?: number | null
   vol_ratio_5d?: number | null
+  // 第三方 TA 指标 (可选 extra `ta`; 仅 /daily 带 ta_columns 时返回)
+  ta_adx_14?: number | null
+  ta_cci_14?: number | null
+  ta_willr_14?: number | null
+  ta_stoch_k?: number | null
+  ta_stoch_d?: number | null
+  ta_aroon_up?: number | null
+  ta_aroon_down?: number | null
+  ta_obv?: number | null
   [key: string]: any
 }
 
@@ -2392,12 +2401,13 @@ export const api = {
   redetectCapabilities: () =>
     request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
 
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string) =>
+  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, taColumns?: string) =>
     request<KlineDailyResponse>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
-      + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : ''),
+      + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : '')
+      + (taColumns ? `&ta_columns=${encodeURIComponent(taColumns)}` : ''),
     ),
   klineDailyLatest: (symbol: string) =>
     request<KlineDailyLatestResponse>(

@@ -48,38 +48,44 @@ class ScreenerService:
         """
         _history_cache.clear()
 
-    def _load_enriched_for_date(self, target_date: date) -> pl.DataFrame:
+    def _load_enriched_for_date(
+        self, target_date: date, ta_columns: set[str] | None = None
+    ) -> pl.DataFrame:
         """从 enriched parquet 读取指定日期的基础数据并即时计算完整指标+信号。
 
         enriched parquet 仅存 14 列。读取后需要即时计算 ma/ema/macd/kdj/rsi/boll/momentum/signal 等列。
         对于最新日, 优先使用内存缓存 (已包含完整指标)。
-        """
-        # 优先使用 repo 最新日缓存
-        cache, cache_date = self.repo.get_enriched_latest_asset(self.asset_type)
-        if cache is not None and not cache.is_empty() and cache_date == target_date:
-            df = cache
-            # JOIN instruments
-            df_i = self.repo.get_instruments_asset(self.asset_type)
-            if not df_i.is_empty():
-                inst_cols = [c for c in ["symbol", "name", "total_shares", "float_shares"] if c in df_i.columns]
-                if "name" not in df.columns:
-                    df = df.join(df_i.select(inst_cols), on="symbol", how="left")
-            return df
 
-        # 尝试从 repo 级预计算历史缓存中提取目标日期 (仅 stock: 该缓存为股票专用)
-        if self.asset_type == "stock":
-            cached_hist = self.repo.get_enriched_history(target_date, 1)
-            if cached_hist is not None and not cached_hist.is_empty() and "date" in cached_hist.columns:
-                df = cached_hist.filter(pl.col("date") == target_date)
-                if not df.is_empty():
-                    logger.debug("_load_enriched_for_date: repo history cache for %s", target_date)
-                    # JOIN instruments
-                    df_i = self.repo.get_instruments_asset(self.asset_type)
-                    if not df_i.is_empty():
-                        inst_cols = [c for c in ["symbol", "name", "total_shares", "float_shares"] if c in df_i.columns]
-                        if "name" not in df.columns:
-                            df = df.join(df_i.select(inst_cols), on="symbol", how="left")
-                    return df
+        ta_columns: 需要补算的第三方 TA 因子 id。非空时跳过单日 repo 缓存 (无 warmup 窗口),
+        直接走带预热的即时计算路径; 为空时行为与既有逐位一致。
+        """
+        if not ta_columns:
+            # 优先使用 repo 最新日缓存
+            cache, cache_date = self.repo.get_enriched_latest_asset(self.asset_type)
+            if cache is not None and not cache.is_empty() and cache_date == target_date:
+                df = cache
+                # JOIN instruments
+                df_i = self.repo.get_instruments_asset(self.asset_type)
+                if not df_i.is_empty():
+                    inst_cols = [c for c in ["symbol", "name", "total_shares", "float_shares"] if c in df_i.columns]
+                    if "name" not in df.columns:
+                        df = df.join(df_i.select(inst_cols), on="symbol", how="left")
+                return df
+
+            # 尝试从 repo 级预计算历史缓存中提取目标日期 (仅 stock: 该缓存为股票专用)
+            if self.asset_type == "stock":
+                cached_hist = self.repo.get_enriched_history(target_date, 1)
+                if cached_hist is not None and not cached_hist.is_empty() and "date" in cached_hist.columns:
+                    df = cached_hist.filter(pl.col("date") == target_date)
+                    if not df.is_empty():
+                        logger.debug("_load_enriched_for_date: repo history cache for %s", target_date)
+                        # JOIN instruments
+                        df_i = self.repo.get_instruments_asset(self.asset_type)
+                        if not df_i.is_empty():
+                            inst_cols = [c for c in ["symbol", "name", "total_shares", "float_shares"] if c in df_i.columns]
+                            if "name" not in df.columns:
+                                df = df.join(df_i.select(inst_cols), on="symbol", how="left")
+                        return df
 
         # 历史日期: 从 parquet 读取 14 列, 即时计算指标 (慢路径)
         enriched_dir = self.repo.store.data_dir / self._enriched_dirname
@@ -99,7 +105,7 @@ class ScreenerService:
             return df
 
         # 即时计算指标: 需要加载历史窗口作 warmup
-        df_full = self._compute_enriched_full(df, target_date)
+        df_full = self._compute_enriched_full(df, target_date, ta_columns=ta_columns)
         return df_full
 
     def load_prior_consecutive(self, as_of: date, consec_col: str) -> pl.DataFrame:
@@ -140,10 +146,13 @@ class ScreenerService:
                 return pl.DataFrame()
         return pl.DataFrame()
 
-    def _compute_enriched_full(self, df_target: pl.DataFrame, target_date: date) -> pl.DataFrame:
+    def _compute_enriched_full(
+        self, df_target: pl.DataFrame, target_date: date, ta_columns: set[str] | None = None
+    ) -> pl.DataFrame:
         """从 14 列基础数据即时计算完整 enriched (含全部指标和信号)。
 
         读取历史数据作为指标计算的 warmup, 计算完成后只返回目标日期的行。
+        ta_columns 非空时在带预热的整段上补算第三方 TA 列 (供自定义 SQL 条件引用)。
         """
         from app.indicators.pipeline import (
             compute_indicators,
@@ -189,6 +198,12 @@ class ScreenerService:
                 instruments,
                 historical_shares=self.repo.get_historical_shares(),
             )
+
+        # 第三方 TA 指标 opt-in 补算 (在含 warmup 的整段上计算, 再裁到目标日; 未请求时 no-op)
+        if ta_columns:
+            from app.factors import ta_factors
+
+            df_full = ta_factors.attach_ta_columns(df_full, needed=set(ta_columns))
 
         # 只保留目标日期
         df_result = df_full.filter(pl.col("date") == target_date)
@@ -325,8 +340,20 @@ class ScreenerService:
         if not conditions:
             return ScreenerResult(as_of=as_of, strategy=None)
 
+        # 条件引用第三方 TA 列 (ta_*) 时, 走带 warmup 的即时计算路径补算这些列;
+        # 未引用或未装 extra 时为空集, 保持原缓存快路径不变。否则 DuckDB 找不到列会
+        # 抛 Binder Error 并被吞成静默空结果 (同 #187 的 turnover_rate 问题)。
+        from app.factors import ta_factors
+
+        ta_needed = ta_factors.referenced_ta_columns(" ".join(conditions))
+
         # 从即时计算获取完整 enriched 数据
-        df = self._load_enriched_for_date(as_of)
+        # (无 ta 条件时不传 ta_columns, 保持既有 1 参调用形态与被打桩调用的兼容)
+        df = (
+            self._load_enriched_for_date(as_of, ta_columns=ta_needed)
+            if ta_needed
+            else self._load_enriched_for_date(as_of)
+        )
         if df.is_empty():
             return ScreenerResult(as_of=as_of, strategy=None)
 

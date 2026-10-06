@@ -1405,15 +1405,22 @@ class KlineRepository:
         start: date,
         end: date,
         columns: list[str] | None = None,
+        ta_columns: set[str] | None = None,
     ) -> pl.DataFrame:
-        """单股日K查询 — 从14列parquet读取后即时计算指标。"""
+        """单股日K查询 — 从14列parquet读取后即时计算指标。
+
+        ta_columns: 可选, 需要额外补算的第三方 TA 因子 id (opt-in)。非空时跳过只读
+        列快路径与单日缓存裁剪, 并向左放宽预热窗口, 使 attach_ta_columns 有足够
+        warmup; 未请求时行为与既有逐位一致。
+        """
         from datetime import timedelta
 
         # 快路径: 请求的列全是 parquet 直接存储的列 (如迷你蜡烛图只要 OHLCV) →
         # scan + 列下推直接返回, 跳过 warmup(150天) 与 _compute_enriched_range 全套指标计算。
         # 仍用 enriched_latest 缓存覆盖最新日 (盘中更准), 只保留请求列。
         # 试探 scan 仅读请求的列; 缺列时回退到下方完整计算路径 (代价仅一次轻量 scan)。
-        if columns:
+        # ta_columns 请求需要 warmup, 不能走该快路径。
+        if columns and not ta_columns:
             df = self._scan_daily_symbol(symbol, start, end, columns)
             if not df.is_empty() and all(c in df.columns for c in columns):
                 cached, cache_date = self.get_enriched_latest()
@@ -1439,9 +1446,11 @@ class KlineRepository:
             hist_min = self._enriched_history_start
             hist_max = hist["date"].max()
             if hist_min is not None and hist_min <= start and hist_max >= start:
+                # ta_columns 请求向左多取预热量, 供下方 attach_ta_columns 计算窗口指标
+                slice_start = start - timedelta(days=90) if ta_columns else start
                 df = hist.filter(
                     (pl.col("symbol") == symbol)
-                    & (pl.col("date") >= start)
+                    & (pl.col("date") >= slice_start)
                     & (pl.col("date") <= end)
                 )
         if df.is_empty():
@@ -1459,6 +1468,14 @@ class KlineRepository:
                     df = df.filter(pl.col("date") != cache_date)
                     common_cols = [c for c in df.columns if c in cached_part.columns]
                     df = pl.concat([df.select(common_cols), cached_part.select(common_cols)])
+
+        # 第三方 TA 指标 opt-in 补算 (需 warmup 行, 故在裁剪前执行; 未请求时 no-op)。
+        # 放在最新日覆盖之后: 覆盖时 common_cols 交集尚未含 ta 列, 不会被裁剪掉;
+        # attach 对含 warmup 的整段逐 symbol 窗口计算, 再由下方裁剪收敛到 start..end。
+        if ta_columns and not df.is_empty():
+            from app.factors import ta_factors
+
+            df = ta_factors.attach_ta_columns(df, needed=set(ta_columns))
 
         # 裁剪到请求范围
         if not df.is_empty():
@@ -1551,9 +1568,10 @@ class KlineRepository:
         start: date,
         end: date,
         columns: list[str] | None = None,
+        ta_columns: set[str] | None = None,
     ) -> pl.DataFrame:
         if asset_type == "stock":
-            return self.get_daily(symbol, start, end, columns)
+            return self.get_daily(symbol, start, end, columns, ta_columns)
         if asset_type == "index":
             return self.get_index_daily(symbol, start, end, columns)
         if asset_type == "etf":
