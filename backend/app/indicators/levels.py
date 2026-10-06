@@ -55,6 +55,13 @@ LEVEL_TYPES = {
 }
 
 
+# 关键价位口径版本。任何改变 compute_levels 输出(数值/点数/语义/分组)的改动都必须 bump,
+# 并在此追加一行说明。版本随 /levels 与 /analyze 下发, 并写入分析报告, 便于追溯口径。
+# v1: 初版口径 —— 11 组价位; fib 为标准斐波那契回撤(0.236/0.382/0.5/0.618/0.786,
+#     window=120, 上涨 high-range*ratio / 下跌 low+range*ratio, 并列极值取首次出现)。
+LEVELS_METHODOLOGY_VERSION = "levels_v1"
+
+
 # ================================================================
 # 1. 压力位 / 支撑位 —— 成交量分布 (Volume Profile)
 # ================================================================
@@ -471,12 +478,15 @@ def _gap_levels(df: pl.DataFrame, lookback: int = 120) -> list[dict]:
 # ================================================================
 
 def _fibonacci_levels(df: pl.DataFrame, window: int = 120) -> list[dict]:
-    """基于近期一段明确趋势的斐波那契回撤位。
+    """基于近期一段明确趋势的斐波那契回撤位 (口径见 LEVELS_METHODOLOGY_VERSION v1)。
 
-    取近 window 个交易日的最高/最低点:
-      - 若高点出现在低点之后(上涨波段):从低到高,回撤 = high - range × ratio
-      - 若低点出现在高点之后(下跌波段):从高到低,回撤 = low + range × ratio
-    比率:0.236 / 0.382 / 0.5 / 0.618 / 0.786
+    输入为 enriched 前复权 high/low; 取近 window 个交易日 (默认 120, 超出则 tail(120)) 的
+    最高/最低点:
+      - 高点出现在低点之后 (上涨波段): 回撤 = high - range * ratio
+      - 低点出现在高点之后 (下跌波段): 回撤 = low + range * ratio
+    比率固定: 0.236 / 0.382 / 0.5 / 0.618 / 0.786 (标签 Fib 23.6% ~ Fib 78.6%)。
+    方向判定用极值的首次出现位置 (list.index 语义): 并列极值时取最早的一根。
+    height < 10 或 high <= low 时返回空列表。
     """
     if df.is_empty() or df.height < 10:
         return []

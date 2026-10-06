@@ -21,7 +21,11 @@ from pathlib import Path
 
 import polars as pl
 
-from app.indicators.levels import compute_levels, summarize_levels
+from app.indicators.levels import (
+    LEVELS_METHODOLOGY_VERSION,
+    compute_levels,
+    summarize_levels,
+)
 from app.services.financial_sync import get_financial_df
 
 logger = logging.getLogger(__name__)
@@ -278,7 +282,7 @@ async def analyze_stock_stream(
     """流式个股分析:yield 出每个 NDJSON 事件。
 
     协议(与 financial_analyzer 一致,前端解析无差异):
-      {"type":"meta","symbol","summary","levels"}  数据 + 价位摘要
+      {"type":"meta","symbol","summary","levels","close","methodology_version"}  数据 + 价位摘要
       {"type":"delta","content":"..."}             逐 chunk 文本
       {"type":"error","message":"..."}
       {"type":"done"}
@@ -306,6 +310,7 @@ async def analyze_stock_stream(
         "summary": summarize_levels(levels, close),
         "levels": levels,
         "close": close,
+        "methodology_version": LEVELS_METHODOLOGY_VERSION,
     }, ensure_ascii=False)
 
     # 5+6. 构建提示词 + 流式调用 LLM(整体 try-except,任何异常都 yield error,避免前端卡死)

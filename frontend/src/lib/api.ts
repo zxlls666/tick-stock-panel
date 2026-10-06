@@ -210,6 +210,8 @@ export interface StockLevels {
   close: number | null
   summary: string
   symbol: string
+  /** 价位口径版本(追溯;旧响应可能缺该字段) */
+  methodology_version?: string
   /** dates 与 series 对齐;前端按自身 rows 的日期映射,缺失填 null */
   dates?: string[]
   series?: LevelSeries
@@ -224,6 +226,8 @@ export interface AiStockReport {
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
+  /** 价位口径版本(追溯;旧报告可能缺该字段) */
+  methodology_version?: string
   created_at: string
 }
 
@@ -3261,6 +3265,7 @@ export const api = {
     symbol: string; name?: string; focus?: string; content: string
     summary?: string; close?: number | null
     levels?: Record<LevelType, PriceLevel[]>
+    methodology_version?: string
   }) =>
     request<{ ok: boolean; report: AiStockReport }>('/api/stock-analysis/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -3279,6 +3284,7 @@ export const api = {
     summary?: string
     levels?: Record<LevelType, PriceLevel[]>
     close?: number | null
+    methodology_version?: string
     content?: string
     message?: string
   }> {

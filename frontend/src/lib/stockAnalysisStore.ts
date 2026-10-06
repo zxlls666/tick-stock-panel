@@ -26,6 +26,7 @@ export interface ActiveTask {
     summary?: string
     levels?: Record<LevelType, PriceLevel[]>
     close?: number | null
+    methodology_version?: string
   } | null
   createdAt: number
   savedReportId?: string
@@ -42,6 +43,7 @@ export interface HistoryReport {
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
+  methodology_version?: string
   created_at: string
 }
 
@@ -195,7 +197,10 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
       if (!cur) return
       switch (chunk.type) {
         case 'meta':
-          patchTask(id, { meta: { summary: chunk.summary, levels: chunk.levels, close: chunk.close } })
+          patchTask(id, { meta: {
+            summary: chunk.summary, levels: chunk.levels, close: chunk.close,
+            methodology_version: chunk.methodology_version,
+          } })
           break
         case 'delta':
           if (firstDelta) { patchTask(id, { phase: 'streaming' }); firstDelta = false }
@@ -221,6 +226,7 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
           symbol: final.symbol, name: final.name, focus: final.focus,
           content: final.content, summary: final.meta?.summary ?? '',
           close: final.meta?.close ?? null, levels: final.meta?.levels,
+          methodology_version: final.meta?.methodology_version,
         })
         if (res.report) {
           patchTask(id, { savedReportId: res.report.id })

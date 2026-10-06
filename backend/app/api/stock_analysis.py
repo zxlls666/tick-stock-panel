@@ -20,7 +20,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.indicators.levels import compute_levels, summarize_levels
+from app.indicators.levels import (
+    LEVELS_METHODOLOGY_VERSION,
+    compute_levels,
+    summarize_levels,
+)
 from app.services import stock_reports
 from app.services.stock_analyzer import analyze_stock_stream
 
@@ -112,7 +116,7 @@ def get_levels(
     布林带 / Keltner短中长 / ATR止损 / 缺口 / 斐波那契 / 整数关口)。
 
     返回 {levels: {sr, pivot, extreme, boll, keltner_s, keltner_m, keltner_l,
-    atr_stop, gap, fib, round}, close, summary, dates, series}。
+    atr_stop, gap, fib, round}, close, summary, symbol, methodology_version, dates, series}。
     前端按 levels 的 key 渲染开关按钮,逐组显隐 markLine / 曲线。
     """
     if not symbol:
@@ -128,6 +132,7 @@ def get_levels(
                            "boll": [], "keltner_s": [], "keltner_m": [], "keltner_l": [],
                            "atr_stop": [], "gap": [], "fib": [], "round": []},
                 "close": None, "summary": "无数据", "symbol": symbol,
+                "methodology_version": LEVELS_METHODOLOGY_VERSION,
                 "dates": [], "series": {}}
 
     levels = compute_levels(df)
@@ -140,6 +145,7 @@ def get_levels(
         "close": close,
         "summary": summarize_levels(levels, close),
         "symbol": symbol,
+        "methodology_version": LEVELS_METHODOLOGY_VERSION,
         "dates": [str(d) for d in dates],
         "series": series,
     }
@@ -188,6 +194,8 @@ class SaveReportRequest(BaseModel):
     summary: str = ""
     close: float | None = None
     levels: dict | None = None
+    # 价位口径版本; 缺省(旧客户端)时后端兜底为当前版本 (向后兼容)
+    methodology_version: str | None = None
 
 
 @router.get("/reports")
@@ -207,6 +215,7 @@ def save_report(request: Request, req: SaveReportRequest):
         "summary": req.summary,
         "close": req.close,
         "levels": req.levels,
+        "methodology_version": req.methodology_version or LEVELS_METHODOLOGY_VERSION,
     })
     return {"ok": True, "report": report}
 

@@ -38,7 +38,10 @@ function getContent(task: ActiveTask | HistoryReport | null): string {
 function getMeta(task: ActiveTask | HistoryReport | null) {
   if (!task) return null
   if ('meta' in task) return task.meta
-  return { summary: task.summary, close: task.close, levels: task.levels }
+  return {
+    summary: task.summary, close: task.close, levels: task.levels,
+    methodology_version: task.methodology_version,
+  }
 }
 
 export function StockAnalysisDialog({ task, mode, minimized }: Props) {
@@ -129,6 +132,9 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
                   )}
                   {isHistory && task && 'created_at' in task && (
                     <span className="shrink-0">{fmtRelative(task.created_at)}</span>
+                  )}
+                  {meta?.methodology_version && (
+                    <span className="shrink-0 font-mono" title="关键价位口径版本">口径 {meta.methodology_version}</span>
                   )}
                 </div>
               </div>
