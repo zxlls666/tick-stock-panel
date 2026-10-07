@@ -21,6 +21,7 @@ from app.api import (
     ext_data,
     factors,
     financials,
+    indicators,
     indices,
     intraday,
     kline,
@@ -473,6 +474,7 @@ app.include_router(watchlist.router)
 app.include_router(screener.router)
 app.include_router(backtest.router)
 app.include_router(factors.router)
+app.include_router(indicators.router)
 app.include_router(mining.router)
 app.include_router(intraday.router)
 app.include_router(indices.router)
