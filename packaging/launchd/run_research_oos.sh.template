@@ -1,0 +1,42 @@
+#!/bin/sh
+# Template: launchd wrapper for the research OOS scheduler.
+#
+# 复制为可执行文件并替换 __PLACEHOLDER__ (见 ./README.md)。职责:
+#   1. 固定工作目录/环境 (launchd 不继承交互 shell 的 PATH);
+#   2. 从交易日历取"今天或之前最后一个交易日"作为 --as-of;
+#   3. 读取当日 data generation (须在前端盘后管道完成之后运行);
+#   4. 调同一条调度入口 CLI (--skip-sync: 上游同步已由后端完成)。
+#
+# 失败语义: 任一步非零即整体非零; launchd 只记日志, 不重试 (避免半成品)。
+set -eu
+
+REPO="__REPO__"
+DATA_DIR="${DATA_DIR:-__DATA_DIR__}"
+CALENDAR="__TRADING_CALENDAR__"
+EXCLUSION_HISTORY="__EXCLUSION_HISTORY__"
+UV="__UV_BIN__"
+LOG_DIR="__LOG_DIR__"
+
+mkdir -p "$LOG_DIR"
+
+# 最近一个 <= 今天的交易日 (日历为冻结的换行分隔日期, 已升序)
+TODAY="$(date +%F)"
+AS_OF="$(awk -v t="$TODAY" '$0 <= t { last = $0 } END { print last }' "$CALENDAR")"
+if [ -z "${AS_OF:-}" ]; then
+  echo "no trading day <= $TODAY in $CALENDAR" >&2
+  exit 1
+fi
+
+GENERATION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["generation"])' \
+  "$DATA_DIR/.matrix_generation_stock.json")"
+
+cd "$REPO"
+exec "$UV" run --project "$REPO/backend" python \
+  "$REPO/backend/scripts/run_research_scheduler.py" \
+  --as-of "$AS_OF" \
+  --expected-generation "$GENERATION" \
+  --trading-calendar "$CALENDAR" \
+  --exclusion-history "$EXCLUSION_HISTORY" \
+  --skip-sync \
+  --output-root "$DATA_DIR/research/a_share_oos" \
+  --log-root "$DATA_DIR/research/a_share_oos/_scheduler_logs"

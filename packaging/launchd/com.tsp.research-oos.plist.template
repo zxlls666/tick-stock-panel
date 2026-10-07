@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template: `com.tsp.research-oos` — 每个交易日盘后调用 research OOS 调度入口。
+
+  使用前把 __PLACEHOLDER__ 全部替换为绝对路径 (见 ./README.md)。
+  这是模板, 不要直接加载; 复制到 ~/Library/LaunchAgents/com.tsp.research-oos.plist 后再替换。
+
+  注意: StartCalendarInterval 用的是**宿主机本地时区**; 若机器非 Asia/Shanghai,
+  需要按本地时间换算 Hour, 或统一宿主机时区为 Asia/Shanghai。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tsp.research-oos</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>__WRAPPER__</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__UV_BIN_DIR__:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>DATA_DIR</key>
+    <string>__DATA_DIR__</string>
+    <key>TZ</key>
+    <string>Asia/Shanghai</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>18</integer><key>Minute</key><integer>30</integer></dict>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/launchd.err.log</string>
+</dict>
+</plist>
