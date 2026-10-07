@@ -125,7 +125,7 @@ class _FakeRepo:
     def get_instruments(self) -> pl.DataFrame:
         return pl.DataFrame()
 
-    def get_daily_asset(self, asset_type, symbol, start, end, columns=None, ta_columns=None):
+    def get_daily_asset(self, asset_type, symbol, start, end, columns=None, ta_columns=None, indicator_specs=None):
         self.ta_params.append(ta_columns)
         df = pl.DataFrame({
             "symbol": [symbol], "date": [date(2026, 9, 2)],

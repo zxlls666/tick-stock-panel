@@ -21,6 +21,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import duckdb
 import polars as pl
@@ -35,6 +36,9 @@ from app.enriched_generation import (
 from app.market_time import cn_today
 from app.parquet import scan_enriched_parquet
 from app.polars_guard import guarded_collect
+
+if TYPE_CHECKING:
+    from app.indicators.custom import IndicatorSpec
 
 logger = logging.getLogger(__name__)
 
@@ -1406,21 +1410,30 @@ class KlineRepository:
         end: date,
         columns: list[str] | None = None,
         ta_columns: set[str] | None = None,
+        indicator_specs: list[IndicatorSpec] | None = None,
     ) -> pl.DataFrame:
         """单股日K查询 — 从14列parquet读取后即时计算指标。
 
         ta_columns: 可选, 需要额外补算的第三方 TA 因子 id (opt-in)。非空时跳过只读
         列快路径与单日缓存裁剪, 并向左放宽预热窗口, 使 attach_ta_columns 有足够
         warmup; 未请求时行为与既有逐位一致。
+
+        indicator_specs: 可选, 图表自定义周期指标 (opt-in, 见 indicators.custom)。非空时
+        按最大周期自适应加宽预热并补算**别名列**, 不覆盖规范列; 未请求时行为与既有逐位一致。
         """
         from datetime import timedelta
+
+        from app.indicators.custom import compute_custom_indicators, max_period
+
+        # 自定义周期指标需要更宽的预热 (按最大周期自适应)
+        warmup_days = max(150, 2 * max_period(indicator_specs) + 30) if indicator_specs else 150
 
         # 快路径: 请求的列全是 parquet 直接存储的列 (如迷你蜡烛图只要 OHLCV) →
         # scan + 列下推直接返回, 跳过 warmup(150天) 与 _compute_enriched_range 全套指标计算。
         # 仍用 enriched_latest 缓存覆盖最新日 (盘中更准), 只保留请求列。
         # 试探 scan 仅读请求的列; 缺列时回退到下方完整计算路径 (代价仅一次轻量 scan)。
-        # ta_columns 请求需要 warmup, 不能走该快路径。
-        if columns and not ta_columns:
+        # ta_columns / indicator_specs 请求需要 warmup, 不能走该快路径。
+        if columns and not ta_columns and not indicator_specs:
             df = self._scan_daily_symbol(symbol, start, end, columns)
             if not df.is_empty() and all(c in df.columns for c in columns):
                 cached, cache_date = self.get_enriched_latest()
@@ -1433,8 +1446,8 @@ class KlineRepository:
                             df = pl.concat([df.select(common_cols), cached_part.select(common_cols)])
                 return df
 
-        # 扩展范围用于指标预热 (MA60 需要 ~60 交易日 ≈ 120 日历日)
-        warmup_start = start - timedelta(days=150)
+        # 扩展范围用于指标预热 (MA60 需要 ~60 交易日 ≈ 120 日历日; 自定义周期按需加宽)
+        warmup_start = start - timedelta(days=warmup_days)
 
         # 优先复用预计算 enriched 历史缓存 (300 天全指标, 与回测引擎同源):
         # 个股对话框打开时本接口每个行情 tick 被调一次, 逐请求 150 天扫描 + 全套
@@ -1445,9 +1458,16 @@ class KlineRepository:
         if hist is not None and not hist.is_empty() and "date" in hist.columns:
             hist_min = self._enriched_history_start
             hist_max = hist["date"].max()
-            if hist_min is not None and hist_min <= start and hist_max >= start:
-                # ta_columns 请求向左多取预热量, 供下方 attach_ta_columns 计算窗口指标
-                slice_start = start - timedelta(days=90) if ta_columns else start
+            # indicator_specs 需要完整预热: 缓存覆盖不到预热起点时回退扫描路径, 避免别名列首段 NaN
+            coverage_start = start - timedelta(days=warmup_days) if indicator_specs else start
+            if hist_min is not None and hist_min <= coverage_start and hist_max >= start:
+                # ta_columns / indicator_specs 请求向左多取预热量, 供窗口指标计算
+                if indicator_specs:
+                    slice_start = start - timedelta(days=warmup_days)
+                elif ta_columns:
+                    slice_start = start - timedelta(days=90)
+                else:
+                    slice_start = start
                 df = hist.filter(
                     (pl.col("symbol") == symbol)
                     & (pl.col("date") >= slice_start)
@@ -1476,6 +1496,10 @@ class KlineRepository:
             from app.factors import ta_factors
 
             df = ta_factors.attach_ta_columns(df, needed=set(ta_columns))
+
+        # 图表自定义周期指标 opt-in 补算 (别名列, 需预热; 未请求时不产生任何列)
+        if indicator_specs and not df.is_empty():
+            df = compute_custom_indicators(df, indicator_specs)
 
         # 裁剪到请求范围
         if not df.is_empty():
@@ -1569,9 +1593,10 @@ class KlineRepository:
         end: date,
         columns: list[str] | None = None,
         ta_columns: set[str] | None = None,
+        indicator_specs: list[IndicatorSpec] | None = None,
     ) -> pl.DataFrame:
         if asset_type == "stock":
-            return self.get_daily(symbol, start, end, columns, ta_columns)
+            return self.get_daily(symbol, start, end, columns, ta_columns, indicator_specs)
         if asset_type == "index":
             return self.get_index_daily(symbol, start, end, columns)
         if asset_type == "etf":

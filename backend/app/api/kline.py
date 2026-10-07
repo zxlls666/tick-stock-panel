@@ -364,6 +364,9 @@ def get_daily(
     end_date: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD, 默认今天"),
     ext_columns: Optional[str] = Query(None, description="逗号分隔的 ext 列: config_id.field_name"),
     ta_columns: Optional[str] = Query(None, description="逗号分隔的第三方 TA 因子 id, 如 ta_adx_14"),
+    indicator_specs: str | None = Query(
+        None, description="逗号分隔的自定义周期指标, 如 ma:5:13,rsi:7 (产出别名列, 不改规范列)"
+    ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
 
@@ -373,6 +376,8 @@ def get_daily(
       (key 为 "{config_id}__{field_name}")，供日K信息条等场景展示自定义字段
     - ta_columns: 可选, 逗号分隔的第三方 TA 因子 id (需安装可选 extra `ta`)。命中时随行
       返回对应 `ta_*` 列 (含预热窗口); 未安装/未命中时忽略, 行为与既有逐位一致。
+    - indicator_specs: 可选, 逗号分隔的自定义周期指标 (如 `ma:5:13,macd:8:17:9`)。命中时
+      随行返回**别名列** (`ma_13_c` 等, 见 indicators.custom); 不覆盖规范列。非法参数返回 400。
     """
     import polars as pl
 
@@ -390,12 +395,21 @@ def get_daily(
         {c.strip() for c in ta_columns.split(",")} & ta_ids if ta_columns and ta_ids else set()
     ) or None
 
+    from app.indicators.custom import parse_indicator_specs
+
+    try:
+        custom_specs = parse_indicator_specs(indicator_specs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid indicator_specs: {exc}") from exc
+
     asset_type = repo.resolve_asset_type(symbol)
     stock_info = _get_stock_info(repo, symbol) if asset_type == "stock" else _get_asset_info(repo, symbol, asset_type)
     stock_name = stock_info.get("name")
 
     # 从 enriched 表读取 (已含前复权 OHLCV + 技术指标 + 信号); ETF/指数走独立存储
-    df = repo.get_daily_asset(asset_type, symbol, start, end, ta_columns=requested_ta)
+    df = repo.get_daily_asset(
+        asset_type, symbol, start, end, ta_columns=requested_ta, indicator_specs=custom_specs
+    )
 
     if df.is_empty():
         try:
@@ -416,6 +430,10 @@ def get_daily(
         enriched = compute_enriched(raw, factors=factors)
         if requested_ta:
             enriched = ta_factors.attach_ta_columns(enriched, needed=requested_ta)
+        if custom_specs:
+            from app.indicators.custom import compute_custom_indicators
+
+            enriched = compute_custom_indicators(enriched, custom_specs)
         rows = enriched.tail(days).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
