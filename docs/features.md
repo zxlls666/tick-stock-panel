@@ -36,7 +36,7 @@
 
 盘后管道(默认 15:35 CST 自动触发; 盘后固定价 15:30 终止 + 供应商日线定稿缓冲)会重新拉日 K + 重算 enriched 表。
 
-**图表指标可调参**:个股日 K 图工具条「参数」可改 均线 / RSI / MACD / KDJ / BOLL 的周期。改动后前端只按需请求对应指标的**别名列**(如 `ma_13_c`),不改写规范列(`ma20`/`macd_dif` 等),选股 / 回测 / 自定义信号口径不受影响;参数存于本地(localStorage)。口径见 [ADR-005](./adr/ADR-005-chart-indicator-params-alias-columns.md)。
+**图表指标与目录**:个股日 K 图的指标(均线 / EMA / MACD / RSI / KDJ / BOLL / 成交量,以及可选 extra `ta` 的 ADX / CCI / W%R / STOCH / AROON / OBV / Supertrend / HMA)由后端**指标注册表**统一声明(`GET /api/indicators/catalog`),前端按目录渲染——**新增一个通用指标只需在后端注册一条描述符即可出现在选择器里**。工具条「指标」按 主图叠加 / 副图 / TA 分组开关,图例可逐条勾选隐藏;「参数」可改周期(如均线 `5,13,34`),改动后只按需请求对应指标的**别名列**(如 `ma_13_c`),不改写规范列(`ma20`/`macd_dif` 等),选股 / 回测 / 自定义信号口径不受影响,参数存于本地(localStorage)。口径见 [ADR-006](./adr/ADR-006-chart-indicator-registry.md) / [ADR-005](./adr/ADR-005-chart-indicator-params-alias-columns.md)。
 
 ---
 
