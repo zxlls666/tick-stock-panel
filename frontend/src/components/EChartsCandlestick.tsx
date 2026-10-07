@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import { fmtPct } from '@/lib/format'
 import { BOLL_COLOR, DEFAULT_INDICATOR_COLUMNS, colVal, type IndicatorColumns } from '@/lib/chartIndicators'
@@ -85,6 +85,11 @@ interface SubChartContext {
   columns: IndicatorColumns
 }
 
+/** 图例项 (key 需与 series.key 一致, 用于点击勾选/隐藏)。 */
+export interface LegendItem { key: string; label: string; color: string }
+/** 图例分组 (主图 / 各副图 / TA)。 */
+export interface LegendGroup { group: string; items: LegendItem[] }
+
 /** 子图定义 */
 export interface SubChartDef {
   key: string
@@ -95,6 +100,8 @@ export interface SubChartDef {
   buildSeries: (data: OHLC[], context: SubChartContext) => any[]
   /** 构建信息栏文字 (当前数据行 + 上下文 -> 显示内容) */
   buildInfo: (d: OHLC | null, context: SubChartContext) => { label: string; color: string; value: string }[]
+  /** 可勾选图例项 (key 与 buildSeries 产出的 series.key 一致); 缺省则不可单独勾选 */
+  legend?: (context: SubChartContext) => LegendItem[]
   /** Y 轴特殊配置 */
   yAxisConfig?: Record<string, any>
   /** 可选: 数据来源列 (TA 子图用于让上层按开启项拼接请求参数) */
@@ -145,10 +152,11 @@ function ohlcLine(
   color: string,
   data: OHLC[],
   col: string,
-  opts: { dashed?: boolean; silent?: boolean } = {},
+  opts: { dashed?: boolean; silent?: boolean; key?: string } = {},
 ) {
   return {
     name,
+    key: opts.key,
     type: 'line' as const,
     data: data.map(d => {
       const v = colVal(d, col)
@@ -192,6 +200,7 @@ export const SUB_CHARTS: SubChartDef[] = [
       return [
         {
           name: '成交量',
+          key: 'vol',
           type: 'bar',
           data: data.map((d, index) => {
             const ratio = volumeRatioAt(data, index, compareDays)
@@ -218,6 +227,7 @@ export const SUB_CHARTS: SubChartDef[] = [
         },
         {
           name: 'VOL5',
+          key: 'vol5',
           type: 'line',
           data: ma5Data,
           smooth: true, symbol: 'none', animation: false,
@@ -226,6 +236,7 @@ export const SUB_CHARTS: SubChartDef[] = [
         },
         {
           name: 'VOL10',
+          key: 'vol10',
           type: 'line',
           data: ma10Data,
           smooth: true, symbol: 'none', animation: false,
@@ -240,6 +251,11 @@ export const SUB_CHARTS: SubChartDef[] = [
         { label: '量', color: d.close >= d.open ? '#C74040' : '#2D9B65', value: fmtVol(d.volume) },
       ]
     },
+    legend: () => [
+      { key: 'vol', label: '成交量', color: '#8E8E96' },
+      { key: 'vol5', label: 'VOL5', color: '#FACC15' },
+      { key: 'vol10', label: 'VOL10', color: '#8B5CF6' },
+    ],
   },
   {
     key: 'macd',
@@ -248,10 +264,11 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildSeries: (data, context) => {
       const { dif, dea, hist } = context.columns.macd
       return [
-        ohlcLine(dif.label, dif.color, data, dif.col),
-        ohlcLine(dea.label, dea.color, data, dea.col),
+        ohlcLine(dif.label, dif.color, data, dif.col, { key: dif.col }),
+        ohlcLine(dea.label, dea.color, data, dea.col, { key: dea.col }),
         {
           name: hist.label,
+          key: hist.col,
           type: 'bar',
           data: data.map(d => {
             const v = colVal(d, hist.col)
@@ -278,6 +295,14 @@ export const SUB_CHARTS: SubChartDef[] = [
         { label: hist.label, color: hv != null && hv >= 0 ? '#C74040' : '#2D9B65', value: hv != null ? hv.toFixed(3) : '—' },
       ]
     },
+    legend: (context) => {
+      const { dif, dea, hist } = context.columns.macd
+      return [
+        { key: dif.col, label: dif.label, color: dif.color },
+        { key: dea.col, label: dea.label, color: dea.color },
+        { key: hist.col, label: hist.label, color: '#8E8E96' },
+      ]
+    },
   },
   {
     key: 'rsi',
@@ -285,7 +310,7 @@ export const SUB_CHARTS: SubChartDef[] = [
     height: 72,
     yAxisConfig: { min: 0, max: 100 },
     buildSeries: (data, context) =>
-      context.columns.rsi.map(c => ohlcLine(c.label, c.color, data, c.col)),
+      context.columns.rsi.map(c => ohlcLine(c.label, c.color, data, c.col, { key: c.col })),
     buildInfo: (d, context) => {
       if (!d) return []
       return context.columns.rsi.map(c => {
@@ -293,6 +318,7 @@ export const SUB_CHARTS: SubChartDef[] = [
         return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
       })
     },
+    legend: (context) => context.columns.rsi.map(c => ({ key: c.col, label: c.label, color: c.color })),
   },
   {
     key: 'kdj',
@@ -300,7 +326,7 @@ export const SUB_CHARTS: SubChartDef[] = [
     height: 72,
     buildSeries: (data, context) => {
       const { k, d: dLine, j } = context.columns.kdj
-      return [k, dLine, j].map(c => ohlcLine(c.label, c.color, data, c.col))
+      return [k, dLine, j].map(c => ohlcLine(c.label, c.color, data, c.col, { key: c.col }))
     },
     buildInfo: (d, context) => {
       if (!d) return []
@@ -309,6 +335,10 @@ export const SUB_CHARTS: SubChartDef[] = [
         const v = colVal(d, c.col)
         return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
       })
+    },
+    legend: (context) => {
+      const { k, d: dLine, j } = context.columns.kdj
+      return [k, dLine, j].map(c => ({ key: c.col, label: c.label, color: c.color }))
     },
   },
 ]
@@ -326,46 +356,49 @@ export const TA_SUB_CHARTS: SubChartDef[] = [
     key: 'ta_adx', label: 'ADX', column: 'ta_adx_14', height: 72,
     yAxisConfig: { min: 0, max: 100 },
     buildSeries: (data) => [{
-      name: 'ADX', type: 'line',
+      name: 'ADX', key: 'ta_adx_14', type: 'line',
       data: data.map(d => d.ta_adx_14 != null ? Number(d.ta_adx_14) : '-'),
       smooth: true, symbol: 'none', animation: false,
       lineStyle: { width: 1, color: '#FACC15' }, itemStyle: { color: '#FACC15' },
     }],
     buildInfo: (d) => d ? [{ label: 'ADX', color: '#FACC15', value: d.ta_adx_14 != null ? d.ta_adx_14.toFixed(1) : '—' }] : [],
+    legend: () => [{ key: 'ta_adx_14', label: 'ADX', color: '#FACC15' }],
   },
   {
     key: 'ta_cci', label: 'CCI', column: 'ta_cci_14', height: 72,
     buildSeries: (data) => [{
-      name: 'CCI', type: 'line',
+      name: 'CCI', key: 'ta_cci_14', type: 'line',
       data: data.map(d => d.ta_cci_14 != null ? Number(d.ta_cci_14) : '-'),
       smooth: true, symbol: 'none', animation: false,
       lineStyle: { width: 1, color: '#3B82F6' }, itemStyle: { color: '#3B82F6' },
     }],
     buildInfo: (d) => d ? [{ label: 'CCI', color: '#3B82F6', value: d.ta_cci_14 != null ? d.ta_cci_14.toFixed(1) : '—' }] : [],
+    legend: () => [{ key: 'ta_cci_14', label: 'CCI', color: '#3B82F6' }],
   },
   {
     key: 'ta_willr', label: 'W%R', column: 'ta_willr_14', height: 72,
     yAxisConfig: { min: -100, max: 0 },
     buildSeries: (data) => [{
-      name: 'W%R', type: 'line',
+      name: 'W%R', key: 'ta_willr_14', type: 'line',
       data: data.map(d => d.ta_willr_14 != null ? Number(d.ta_willr_14) : '-'),
       smooth: true, symbol: 'none', animation: false,
       lineStyle: { width: 1, color: '#F97316' }, itemStyle: { color: '#F97316' },
     }],
     buildInfo: (d) => d ? [{ label: 'W%R', color: '#F97316', value: d.ta_willr_14 != null ? d.ta_willr_14.toFixed(1) : '—' }] : [],
+    legend: () => [{ key: 'ta_willr_14', label: 'W%R', color: '#F97316' }],
   },
   {
     key: 'ta_stoch', label: 'STOCH', column: 'ta_stoch_k,ta_stoch_d', height: 72,
     yAxisConfig: { min: 0, max: 100 },
     buildSeries: (data) => [
       {
-        name: 'K', type: 'line',
+        name: 'K', key: 'ta_stoch_k', type: 'line',
         data: data.map(d => d.ta_stoch_k != null ? Number(d.ta_stoch_k) : '-'),
         smooth: true, symbol: 'none', animation: false,
         lineStyle: { width: 1, color: '#FACC15' }, itemStyle: { color: '#FACC15' },
       },
       {
-        name: 'D', type: 'line',
+        name: 'D', key: 'ta_stoch_d', type: 'line',
         data: data.map(d => d.ta_stoch_d != null ? Number(d.ta_stoch_d) : '-'),
         smooth: true, symbol: 'none', animation: false,
         lineStyle: { width: 1, color: '#8B5CF6' }, itemStyle: { color: '#8B5CF6' },
@@ -375,19 +408,23 @@ export const TA_SUB_CHARTS: SubChartDef[] = [
       { label: 'K', color: '#FACC15', value: d.ta_stoch_k != null ? d.ta_stoch_k.toFixed(1) : '—' },
       { label: 'D', color: '#8B5CF6', value: d.ta_stoch_d != null ? d.ta_stoch_d.toFixed(1) : '—' },
     ] : [],
+    legend: () => [
+      { key: 'ta_stoch_k', label: 'K', color: '#FACC15' },
+      { key: 'ta_stoch_d', label: 'D', color: '#8B5CF6' },
+    ],
   },
   {
     key: 'ta_aroon', label: 'AROON', column: 'ta_aroon_up,ta_aroon_down', height: 72,
     yAxisConfig: { min: 0, max: 100 },
     buildSeries: (data) => [
       {
-        name: 'UP', type: 'line',
+        name: 'UP', key: 'ta_aroon_up', type: 'line',
         data: data.map(d => d.ta_aroon_up != null ? Number(d.ta_aroon_up) : '-'),
         smooth: true, symbol: 'none', animation: false,
         lineStyle: { width: 1, color: '#C74040' }, itemStyle: { color: '#C74040' },
       },
       {
-        name: 'DOWN', type: 'line',
+        name: 'DOWN', key: 'ta_aroon_down', type: 'line',
         data: data.map(d => d.ta_aroon_down != null ? Number(d.ta_aroon_down) : '-'),
         smooth: true, symbol: 'none', animation: false,
         lineStyle: { width: 1, color: '#2D9B65' }, itemStyle: { color: '#2D9B65' },
@@ -397,16 +434,21 @@ export const TA_SUB_CHARTS: SubChartDef[] = [
       { label: 'UP', color: '#C74040', value: d.ta_aroon_up != null ? d.ta_aroon_up.toFixed(0) : '—' },
       { label: 'DOWN', color: '#2D9B65', value: d.ta_aroon_down != null ? d.ta_aroon_down.toFixed(0) : '—' },
     ] : [],
+    legend: () => [
+      { key: 'ta_aroon_up', label: 'UP', color: '#C74040' },
+      { key: 'ta_aroon_down', label: 'DOWN', color: '#2D9B65' },
+    ],
   },
   {
     key: 'ta_obv', label: 'OBV', column: 'ta_obv', height: 72,
     buildSeries: (data) => [{
-      name: 'OBV', type: 'line',
+      name: 'OBV', key: 'ta_obv', type: 'line',
       data: data.map(d => d.ta_obv != null ? Number(d.ta_obv) : '-'),
       smooth: true, symbol: 'none', animation: false,
       lineStyle: { width: 1, color: '#06B6D4' }, itemStyle: { color: '#06B6D4' },
     }],
     buildInfo: (d) => d ? [{ label: 'OBV', color: '#06B6D4', value: d.ta_obv != null ? fmtVol(d.ta_obv) : '—' }] : [],
+    legend: () => [{ key: 'ta_obv', label: 'OBV', color: '#06B6D4' }],
   },
 ]
 
@@ -579,6 +621,7 @@ function buildOption(
   volumeCompare: VolumeCompareConfig,
   subCharts: SubChartDef[],
   columns: IndicatorColumns,
+  hidden: Set<string>,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
@@ -787,7 +830,7 @@ function buildOption(
 
   if (hasMA) {
     for (const c of columns.ma) {
-      series.push(ohlcLine(c.label, c.color, data, c.col, { silent: true }))
+      series.push(ohlcLine(c.label, c.color, data, c.col, { silent: true, key: c.col }))
     }
   }
 
@@ -795,8 +838,8 @@ function buildOption(
   const showBOLL = activeIndicators.includes('boll')
     && data.some(d => colVal(d, columns.boll.upper) != null || colVal(d, columns.boll.lower) != null)
   if (showBOLL) {
-    series.push(ohlcLine('BOLL上', BOLL_COLOR, data, columns.boll.upper, { dashed: true, silent: true }))
-    series.push(ohlcLine('BOLL下', BOLL_COLOR, data, columns.boll.lower, { dashed: true, silent: true }))
+    series.push(ohlcLine('BOLL上', BOLL_COLOR, data, columns.boll.upper, { dashed: true, silent: true, key: 'boll_upper' }))
+    series.push(ohlcLine('BOLL下', BOLL_COLOR, data, columns.boll.lower, { dashed: true, silent: true, key: 'boll_lower' }))
   }
 
   // ===== 子图区域 =====
@@ -852,6 +895,11 @@ function buildOption(
   const subStartTop = topPad + candleAvail + candleBottomPad
   const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare, subCharts, columns)
 
+  // 图例勾选: 按 series.key 过滤被隐藏的序列 (K 线无 key, 恒显示)
+  const visibleSeries = hidden.size > 0
+    ? series.filter((s: any) => !s.key || !hidden.has(s.key))
+    : series
+
   return {
     animation: false,
     backgroundColor: THEME.bg,
@@ -885,7 +933,7 @@ function buildOption(
         zoomOnMouseWheel: true,
       },
     ],
-    series,
+    series: visibleSeries,
   }
 }
 
@@ -929,6 +977,9 @@ export function EChartsCandlestick({
     [extraSubCharts],
   )
 
+  // 图例勾选: 被隐藏的序列 key (点击图例项切换)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+
   // --- 全部用 ref，避免高频交互触发 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
   const compactRef = useRef(false)
@@ -945,6 +996,35 @@ export function EChartsCandlestick({
   subChartsRef.current = subCharts
   const columnsRef = useRef(columns)
   columnsRef.current = columns
+
+  // 图例分组 (主图叠加 + 各已开启副图); 每项可点勾选/隐藏, key 与 series.key 一致
+  const legendGroups = useMemo<LegendGroup[]>(() => {
+    const groups: LegendGroup[] = []
+    if (showMA) {
+      const items: LegendItem[] = columns.ma.map(c => ({ key: c.col, label: c.label, color: c.color }))
+      if (activeIndicators.includes('boll')) {
+        items.push({ key: 'boll_upper', label: 'BOLL上', color: BOLL_COLOR })
+        items.push({ key: 'boll_lower', label: 'BOLL下', color: BOLL_COLOR })
+      }
+      if (items.length) groups.push({ group: '主图', items })
+    }
+    const context: SubChartContext = { compact: false, volumeCompare, columns }
+    for (const key of activeIndicators) {
+      const def = subCharts.find(s => s.key === key)
+      const items = def?.legend?.(context)
+      if (def && items && items.length) groups.push({ group: def.label, items })
+    }
+    return groups
+  }, [showMA, columns, activeIndicators, subCharts, volumeCompare])
+
+  const toggleHidden = useCallback((key: string) => {
+    setHidden(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
   const chartHeightRef = useRef(300)
   const subTotalHRef = useRef(0)
   const getInfoBarHTMLRef = useRef<() => string>(() => '')
@@ -1277,6 +1357,7 @@ export function EChartsCandlestick({
       volumeCompare,
       subCharts,
       columns,
+      hidden,
     )
 
     chart.setOption(option, true)
@@ -1294,7 +1375,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, subCharts, columns])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, subCharts, columns, hidden])
 
   // 渲染信息栏容器 (内容由 JS 直接写入)
   const initialHTML = useMemo(() => {
@@ -1337,6 +1418,31 @@ export function EChartsCandlestick({
       {showInfoBar && (
         <div ref={infoBarRef} style={{ backgroundColor: CT().infoBarBg }}
           dangerouslySetInnerHTML={{ __html: initialHTML }} />
+      )}
+
+      {/* 图例 — 点击勾选/隐藏对应序列 */}
+      {legendGroups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 pb-0.5">
+          {legendGroups.map(g => (
+            <div key={g.group} className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted">{g.group}</span>
+              {g.items.map(it => (
+                <button
+                  key={it.key}
+                  type="button"
+                  onClick={() => toggleHidden(it.key)}
+                  title={hidden.has(it.key) ? '点击显示' : '点击隐藏'}
+                  style={{ color: it.color }}
+                  className={`text-[10px] font-mono cursor-pointer transition-opacity hover:opacity-100 ${
+                    hidden.has(it.key) ? 'opacity-40 line-through' : ''
+                  }`}
+                >
+                  {it.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
       )}
 
       {/* ECharts canvas */}

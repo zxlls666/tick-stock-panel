@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type KlineRow } from '@/lib/api'
 import { klineDailyQueryOptions } from '@/lib/kline'
@@ -125,6 +125,31 @@ function SettingRow({ label, value, hint, onChange }: {
   )
 }
 
+/** 指标开关 chip (选择器面板用)。 */
+function IndicatorChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+        active ? 'bg-accent/20 text-accent' : 'bg-elevated text-muted hover:text-secondary'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+/** 选择器分组行。 */
+function PickerGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-14 shrink-0 pt-0.5 text-[10px] text-muted">{label}</span>
+      <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+    </div>
+  )
+}
+
 /** 指标参数设置面板: 改周期后由上层请求对应别名列 (见 lib/chartIndicators.ts 与 ADR-005)。 */
 function IndicatorSettingsPanel({ params, onChange, onClose }: {
   params: ChartIndicatorParams
@@ -202,6 +227,7 @@ export function StockDailyKChart({
     normalizeParams(storage.chartIndicatorParams.get(null)),
   )
   const [showSettings, setShowSettings] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const dateRange = externalDateRange ?? getDefaultRange()
 
   // 自定义指标参数 → 请求编码 (全默认时为空 → 请求/cache key 与既有逐位一致)
@@ -270,33 +296,17 @@ export function StockDailyKChart({
   return (
     <div className={className} style={{ minHeight: chartHeight }}>
       {showIndicatorControls && rows.length > 0 && (
+        <>
         <div className="flex items-center gap-1.5 px-1 pb-0.5">
-          {[...SUB_CHARTS, ...taSubCharts].map(ind => (
-            <button
-              key={ind.key}
-              onClick={() => toggleIndicator(ind.key)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
-                activeIndicators.includes(ind.key)
-                  ? 'bg-accent/20 text-accent'
-                  : 'bg-elevated text-muted hover:text-secondary'
-              }`}
-            >
-              {ind.label}
-            </button>
-          ))}
-          {OVERLAY_INDICATORS.map(ind => (
-            <button
-              key={ind.key}
-              onClick={() => toggleIndicator(ind.key)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
-                activeIndicators.includes(ind.key)
-                  ? 'bg-accent/20 text-accent'
-                  : 'bg-elevated text-muted hover:text-secondary'
-              }`}
-            >
-              {ind.label}
-            </button>
-          ))}
+          <button
+            onClick={() => setShowPicker(v => !v)}
+            aria-expanded={showPicker}
+            className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+              showPicker ? 'bg-accent/20 text-accent' : 'bg-elevated text-muted hover:text-secondary'
+            }`}
+          >
+            指标 {showPicker ? '▴' : '▾'}
+          </button>
           {activeIndicators.includes('vol') && (
             <div className="ml-0.5 flex h-5 items-center gap-1.5 border-l border-border/70 pl-2">
               <span className="text-[10px] text-muted">量比</span>
@@ -348,6 +358,28 @@ export function StockDailyKChart({
             </button>
           )}
         </div>
+        {showPicker && (
+          <div className="flex flex-col gap-1 px-1 pb-1">
+            <PickerGroup label="主图叠加">
+              {OVERLAY_INDICATORS.map(ind => (
+                <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
+              ))}
+            </PickerGroup>
+            <PickerGroup label="副图">
+              {SUB_CHARTS.map(ind => (
+                <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
+              ))}
+            </PickerGroup>
+            {taSubCharts.length > 0 && (
+              <PickerGroup label="TA">
+                {taSubCharts.map(ind => (
+                  <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
+                ))}
+              </PickerGroup>
+            )}
+          </div>
+        )}
+        </>
       )}
       {kline.isLoading && <div className="text-sm text-muted py-4">加载中…</div>}
       {kline.isError && <div className="text-sm text-danger py-2">日K加载失败</div>}
