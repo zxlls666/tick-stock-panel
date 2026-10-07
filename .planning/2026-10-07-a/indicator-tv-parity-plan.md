@@ -236,10 +236,17 @@
   - 需要注册契约（id / 面板位 / 参数 schema / compute），先出 ADR 再实现。
   - 不破坏现有因子注册表契约（对齐 `ta-adapter.md` §1 的既有约束）。
 - **Todos**:
-  - [ ] 定义并落地指标注册表 + 元数据端点。
-  - [ ] 前端选择器改为读注册表渲染；参数 schema 驱动设置对话框。
-  - [ ] 把 `ta_*` 与因子平台接入同一注册可见性。
-- **Exit proof**: 新增一个指标只需后端注册即可在前端出现；回归全绿。
+  - [x] ADR-006（注册契约：id / 面板位 / `params` schema / `outputs`（列/标签/颜色/线或柱）/ `col_template`）。
+    - **Surface**: `docs/adr/ADR-006-chart-indicator-registry.md`
+  - [x] 后端：`indicators/registry.py`（内置 7 条 + TA 8 条）+ `GET /api/indicators/catalog`（只读、含 `available`）。
+    - **Surface**: `backend/app/indicators/registry.py`、`backend/app/api/indicators.py`、`main.py`
+    - **Proof**: `tests/test_indicator_registry.py`：目录结构、TA 门控、**列模板与 `custom.py` 命名交叉校验**、端点。全量 1954 passed。
+  - [x] `ta_*` 与因子平台同源可见性：catalog 的 TA 条目与 `/api/factors` 一样按 `ta_factors.available()` 门控（因子 DSL 属评分口径，不在图表注册表范围，见 ADR-006）。
+  - [x] 前端：选择器 / 渲染器 / 参数面板全部读 catalog；退休 `SUB_CHARTS`/`TA_SUB_CHARTS`/`OVERLAY_INDICATORS` 与 `lib/chartIndicators.ts`。
+    - **Surface**: `lib/indicatorCatalog.ts`(新)、`EChartsCandlestick.tsx`、`StockDailyKChart.tsx`、`pages/Indices.tsx`、`lib/{api,queryKeys}.ts`
+    - **Proof**: `pnpm build`（tsc+vite）通过；浏览器验收：选择器 15 项（含此前前端没有的 EMA / Supertrend / HMA 与全部 TA 面板）；开启 **EMA 即渲染**（零前端代码，信息栏 MA5…MA60 + EMA5…EMA60）；参数面板按 `params` schema 列出 MA/EMA/BOLL/MACD/RSI/KDJ；RSI(0~100)/MACD/成交量副图通用渲染且信息栏正确。
+- **Exit proof**: ✅ 新增指标仅需后端注册即在前端出现（EMA / Supertrend / HMA 实证）；后端 1954 passed；`pnpm build` + 浏览器验收通过。
+- **落地方式**: ADR 原写「先并存、后切换」，实际为**一次性切换**（改动集中且构建+真机验收均通过），旧硬编码已删除。
 - **Stop condition**: 需要改 enriched schema 或数据迁移时停止，重新评审。
 
 ---
