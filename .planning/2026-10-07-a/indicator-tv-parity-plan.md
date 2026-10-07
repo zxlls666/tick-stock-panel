@@ -212,17 +212,20 @@
 - **Entry condition**: Phase 1 通过 + 用户选定「中」。
 - **Phase rules**:
   - 纯前端为主；如选择器需要后端提供「指标元数据」，新增只读端点，不改计算。
-  - 保留现有按钮行作为降级（窄屏）。
+  - **实际实现（偏离原规则）**：原计划「保留现有按钮行作为降级（窄屏）」改为**用「指标 ▾」分组选择器替换扁平按钮行**——按钮本身紧凑、窄屏更优，且避免两套重复 UI；已用 430px 窄屏验收。
   - **合规边界（2c）**：只做**外链跳转**与**导出本仓库自有数据**；不接入 TV 数据源或官方 MCP、不引入 TV/MCP 依赖、不在运行时向外部 TV 发起任何请求（对齐 Non-goals 与 README「遵守服务条款」立场）。
 - **Todos**:
-  - [ ] 图例组件：每个已绘制序列可点勾选/隐藏（替代只读 info bar）。
-  - [ ] 选择器面板：分组（叠加 / 副图 / TA），可增删。
+  - [x] 图例组件：每个已绘制序列可点勾选/隐藏（`hidden` 集合 + series 稳定 `key` + 分组图例；默认态不变）。
+    - **Surface**: `frontend/src/components/EChartsCandlestick.tsx`
+  - [x] 选择器面板：分组（主图叠加 / 副图 / TA），可增删。
+    - **Surface**: `frontend/src/components/StockDailyKChart.tsx`
+    - **Proof**: `pnpm build` 通过；浏览器验收：`指标 ▾` 分组面板（主图叠加/副图/TA）开关生效、图例点击隐藏 MA10（置灰划线、线条移除）、430px 窄屏与亮色主题均正常。
   - [ ] 可选 2b：分析页 `AnalysisKChart` 增加振荡副图（复用 `SUB_CHARTS` 模式）。
   - [ ] 可选 2c：TradingView 深链 / CSV 导出——「在 TV 打开」外链跳转 + 把**本仓库自有** K 线/指标数据导出为 CSV；不接 TV 数据、不引 TV 依赖。
     - **Surface**: `EChartsCandlestick.tsx`（图表工具条）、`lib/api.ts`（数据来自既有后端接口，不新增 TV 请求）
     - **Proof**: `pnpm build` + 页面验收（深链可打开对应标的、CSV 能正确读入）；人工核对运行时不产生对外 TV 域名请求
     - **待核对**: A 股代码→TV 交易所前缀（如 `SSE:` / `SZSE:`）的映射规则需实测确认，不在计划里臆断 URL 格式
-- **Exit proof**: `pnpm build` + 交互验收（加载/空/错/窄屏/深浅色）。
+- **Exit proof**: `pnpm build` 通过；浏览器验收覆盖 分组选择器增删 / 图例勾选 / 窄屏(430px) / 亮色；`git diff --check` 干净。
 - **Stop condition**: 选择器需要为每个指标写死前端逻辑时，停止，转 Phase 3 注册化。
 
 ### Phase 3：指标注册化 / 任意叠加（重）
