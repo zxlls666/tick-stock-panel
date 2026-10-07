@@ -63,9 +63,16 @@ backend/user_prompts/
 # ===== Browser automation =====
 .playwright-mcp/
 
-# ===== AI IDE =====
+# ===== AI IDE / 本地 Agent 工具 =====
 .trae/
 .zcode/
+.handoffs/
+.commandcode/
+.hermes/
+.qoder/
+
+# ===== 本地会话/规划指针 =====
+.planning/.active_plan
 
 # ===== TypeScript build cache =====
 frontend/tsconfig*.tsbuildinfo
