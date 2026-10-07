@@ -36,6 +36,8 @@
 
 盘后管道(默认 15:35 CST 自动触发; 盘后固定价 15:30 终止 + 供应商日线定稿缓冲)会重新拉日 K + 重算 enriched 表。
 
+**图表指标可调参**:个股日 K 图工具条「参数」可改 均线 / RSI / MACD / KDJ / BOLL 的周期。改动后前端只按需请求对应指标的**别名列**(如 `ma_13_c`),不改写规范列(`ma20`/`macd_dif` 等),选股 / 回测 / 自定义信号口径不受影响;参数存于本地(localStorage)。口径见 [ADR-005](./adr/ADR-005-chart-indicator-params-alias-columns.md)。
+
 ---
 
 ## 🧪 回测引擎(Backtest)
