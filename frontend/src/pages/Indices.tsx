@@ -6,6 +6,7 @@ import { api, type IndexInstrument, type KlineRow, type MinuteKlineRow } from '@
 import { QK } from '@/lib/queryKeys'
 import { useCapabilities } from '@/lib/useSharedQueries'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
+import { buildPlan, type CatalogIndicator } from '@/lib/indicatorCatalog'
 import { EChartsIntraday } from '@/components/EChartsIntraday'
 
 function defaultRange() {
@@ -128,6 +129,17 @@ export function Indices() {
   const selectedQuotePct = selectedQuote?.change_pct ?? selectedQuote?.pct
 
   const chartRows = useMemo(() => toOHLC(daily.data?.rows ?? []), [daily.data?.rows])
+
+  // 指标目录 (后端注册表) → 指数图表渲染计划 (成交量 + MACD, 见 ADR-006)
+  const catalogQuery = useQuery({
+    queryKey: QK.indicatorCatalog,
+    queryFn: () => api.indicatorCatalog(),
+    staleTime: 30 * 60_000,
+  })
+  const indicatorPlan = useMemo(
+    () => buildPlan((catalogQuery.data?.indicators ?? []) as CatalogIndicator[], ['vol', 'macd'], {}),
+    [catalogQuery.data],
+  )
   const selectedInfo = topRows.find(r => r.symbol === selectedSymbol) || daily.data?.index_info
   const minuteRows: MinuteKlineRow[] = minute.data?.rows ?? []
   const selectedIdx = selectedDate ? chartRows.findIndex(r => r.date === selectedDate) : -1
@@ -245,14 +257,13 @@ export function Indices() {
                 <EChartsCandlestick
                   data={chartRows}
                   height={620}
-                  showMA={true}
                   showInfoBar={true}
                   showMarkers={false}
                   symbol={selectedSymbol}
                   linkedPrice={linkedPrice}
                   onDateClick={setSelectedDate}
                   visibleBars={48}
-                  activeIndicators={['vol', 'macd']}
+                  indicators={indicatorPlan}
                 />
               </div>
               <div className="min-w-0 flex-1 border-l border-border pl-3" style={{ height: 620 }}>

@@ -4,6 +4,7 @@
 // Prod:同源(FastAPI 托管前端 dist)
 
 import { toast } from '@/components/Toast'
+import type { IndicatorCatalogResponse } from '@/lib/indicatorCatalog'
 
 const BASE = ''
 
@@ -2752,6 +2753,9 @@ export const api = {
     request<{ factors: FactorLibraryItem[] }>(
       `/api/factors${assetType ? `?asset_type=${assetType}` : ''}`,
     ),
+
+  indicatorCatalog: () =>
+    request<IndicatorCatalogResponse>('/api/indicators/catalog'),
 
   factorValidate: (formula: string) =>
     request<FactorValidateResponse>('/api/factors/validate', {

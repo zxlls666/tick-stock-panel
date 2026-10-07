@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import { fmtPct } from '@/lib/format'
-import { BOLL_COLOR, DEFAULT_INDICATOR_COLUMNS, colVal, type IndicatorColumns } from '@/lib/chartIndicators'
+import { colVal, type RenderIndicator, type ResolvedOutput } from '@/lib/indicatorCatalog'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 
@@ -81,8 +81,6 @@ export interface VolumeCompareConfig {
 interface SubChartContext {
   compact: boolean
   volumeCompare: VolumeCompareConfig
-  /** 图表读取的指标列 (默认规范列; 自定义周期时为别名列) */
-  columns: IndicatorColumns
 }
 
 /** 图例项 (key 需与 series.key 一致, 用于点击勾选/隐藏)。 */
@@ -169,28 +167,42 @@ function ohlcLine(
   }
 }
 
-/** 信息栏第二行: 逐条均线 + (可选) BOLL 上/中/下 (中轨=上下轨均值)。 */
-function maBollInfoHTML(d: OHLC, columns: IndicatorColumns, showBoll: boolean): string {
+/** 信息栏第二行: 逐条主图叠加指标 (MA/EMA/BOLL/…)。 */
+function overlayInfoHTML(d: OHLC, overlays: OverlayCol[]): string {
   let html = `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;min-height:20px;flex-wrap:wrap">`
-  for (const c of columns.ma) {
-    const v = colVal(d, c.col)
-    if (v != null) html += `<span style="color:${c.color}">${c.label}:${v.toFixed(2)}</span>`
-  }
-  if (showBoll) {
-    const bu = colVal(d, columns.boll.upper)
-    const bl = colVal(d, columns.boll.lower)
-    if (bu != null && bl != null) {
-      html += `<span style="color:${BOLL_COLOR}">BOLL:${bu.toFixed(2)}/${((bu + bl) / 2).toFixed(2)}/${bl.toFixed(2)}</span>`
-    }
+  for (const o of overlays) {
+    const v = colVal(d, o.col)
+    if (v != null) html += `<span style="color:${o.color}">${o.label}:${v.toFixed(2)}</span>`
   }
   html += `</div>`
   return html
 }
 
-export const SUB_CHARTS: SubChartDef[] = [
-  {
-    key: 'vol',
-    label: '成交量',
+/** 主图叠加序列 (来自渲染计划, 画在 K 线上方)。 */
+export interface OverlayCol {
+  key: string
+  label: string
+  color: string
+  col: string
+  dashed?: boolean
+}
+
+/** 信息栏数值格式 (自适应小数位)。 */
+function fmtVal(v: number): string {
+  const a = Math.abs(v)
+  if (a >= 1e4) return fmtVol(v)
+  if (a >= 100) return v.toFixed(0)
+  if (a >= 10) return v.toFixed(1)
+  return v.toFixed(3)
+}
+
+const panelSeriesKey = (indId: string, outKey: string) => `${indId}:${outKey}`
+
+/** 成交量特例: 柱 + 量比标注 + VOL5/VOL10 (注册表 special="volume")。 */
+function volumePanelDef(ind: RenderIndicator): SubChartDef {
+  return {
+    key: ind.id,
+    label: ind.label,
     height: 84,
     yAxisConfig: { min: 0 },
     buildSeries: (data, context) => {
@@ -226,236 +238,75 @@ export const SUB_CHARTS: SubChartDef[] = [
           animation: false,
         },
         {
-          name: 'VOL5',
-          key: 'vol5',
-          type: 'line',
-          data: ma5Data,
+          name: 'VOL5', key: 'vol5', type: 'line', data: ma5Data,
           smooth: true, symbol: 'none', animation: false,
-          lineStyle: { width: 1, color: '#FACC15' },
-          itemStyle: { color: '#FACC15' },
+          lineStyle: { width: 1, color: '#FACC15' }, itemStyle: { color: '#FACC15' },
         },
         {
-          name: 'VOL10',
-          key: 'vol10',
-          type: 'line',
-          data: ma10Data,
+          name: 'VOL10', key: 'vol10', type: 'line', data: ma10Data,
           smooth: true, symbol: 'none', animation: false,
-          lineStyle: { width: 1, color: '#8B5CF6' },
-          itemStyle: { color: '#8B5CF6' },
+          lineStyle: { width: 1, color: '#8B5CF6' }, itemStyle: { color: '#8B5CF6' },
         },
       ]
     },
-    buildInfo: (d) => {
-      if (!d) return []
-      return [
-        { label: '量', color: d.close >= d.open ? '#C74040' : '#2D9B65', value: fmtVol(d.volume) },
-      ]
-    },
+    buildInfo: (d) => (d
+      ? [{ label: '量', color: d.close >= d.open ? '#C74040' : '#2D9B65', value: fmtVol(d.volume) }]
+      : []),
     legend: () => [
       { key: 'vol', label: '成交量', color: '#8E8E96' },
       { key: 'vol5', label: 'VOL5', color: '#FACC15' },
       { key: 'vol10', label: 'VOL10', color: '#8B5CF6' },
     ],
-  },
-  {
-    key: 'macd',
-    label: 'MACD',
-    height: 72,
-    buildSeries: (data, context) => {
-      const { dif, dea, hist } = context.columns.macd
-      return [
-        ohlcLine(dif.label, dif.color, data, dif.col, { key: dif.col }),
-        ohlcLine(dea.label, dea.color, data, dea.col, { key: dea.col }),
-        {
-          name: hist.label,
-          key: hist.col,
-          type: 'bar',
-          data: data.map(d => {
-            const v = colVal(d, hist.col)
-            if (v == null) return '-'
-            return {
-              value: v,
-              itemStyle: { color: v >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
-            }
-          }),
-          barWidth: '40%',
-          animation: false,
-        },
-      ]
-    },
-    buildInfo: (d, context) => {
-      if (!d) return []
-      const { dif, dea, hist } = context.columns.macd
-      const dv = colVal(d, dif.col)
-      const ev = colVal(d, dea.col)
-      const hv = colVal(d, hist.col)
-      return [
-        { label: dif.label, color: dif.color, value: dv != null ? dv.toFixed(3) : '—' },
-        { label: dea.label, color: dea.color, value: ev != null ? ev.toFixed(3) : '—' },
-        { label: hist.label, color: hv != null && hv >= 0 ? '#C74040' : '#2D9B65', value: hv != null ? hv.toFixed(3) : '—' },
-      ]
-    },
-    legend: (context) => {
-      const { dif, dea, hist } = context.columns.macd
-      return [
-        { key: dif.col, label: dif.label, color: dif.color },
-        { key: dea.col, label: dea.label, color: dea.color },
-        { key: hist.col, label: hist.label, color: '#8E8E96' },
-      ]
-    },
-  },
-  {
-    key: 'rsi',
-    label: 'RSI',
-    height: 72,
-    yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data, context) =>
-      context.columns.rsi.map(c => ohlcLine(c.label, c.color, data, c.col, { key: c.col })),
-    buildInfo: (d, context) => {
-      if (!d) return []
-      return context.columns.rsi.map(c => {
-        const v = colVal(d, c.col)
-        return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
-      })
-    },
-    legend: (context) => context.columns.rsi.map(c => ({ key: c.col, label: c.label, color: c.color })),
-  },
-  {
-    key: 'kdj',
-    label: 'KDJ',
-    height: 72,
-    buildSeries: (data, context) => {
-      const { k, d: dLine, j } = context.columns.kdj
-      return [k, dLine, j].map(c => ohlcLine(c.label, c.color, data, c.col, { key: c.col }))
-    },
-    buildInfo: (d, context) => {
-      if (!d) return []
-      const { k, d: dLine, j } = context.columns.kdj
-      return [k, dLine, j].map(c => {
-        const v = colVal(d, c.col)
-        return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
-      })
-    },
-    legend: (context) => {
-      const { k, d: dLine, j } = context.columns.kdj
-      return [k, dLine, j].map(c => ({ key: c.col, label: c.label, color: c.color }))
-    },
-  },
-]
+  }
+}
 
-/** 向后兼容的 INDICATORS 导出 (不含 vol) */
-export const INDICATORS = SUB_CHARTS.filter(s => s.key !== 'vol')
+/** 通用副图定义: 按 output 的 type 画线/柱, 列名来自渲染计划 (已解析参数)。 */
+function genericPanelDef(ind: RenderIndicator): SubChartDef {
+  const sKey = (o: ResolvedOutput) => panelSeriesKey(ind.id, o.key)
+  return {
+    key: ind.id,
+    label: ind.label,
+    height: 72,
+    yAxisConfig: ind.yAxis ?? undefined,
+    buildSeries: (data) => ind.outputs.map(o => (
+      o.type === 'bar'
+        ? {
+            name: o.label, key: sKey(o), type: 'bar' as const,
+            data: data.map(d => {
+              const v = colVal(d, o.col)
+              if (v == null) return '-'
+              return { value: v, itemStyle: { color: v >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' } }
+            }),
+            barWidth: '40%', animation: false,
+          }
+        : ohlcLine(o.label, o.color, data, o.col, { key: sKey(o) })
+    )),
+    buildInfo: (d) => ind.outputs.map(o => {
+      const v = colVal(d, o.col)
+      return { label: o.label, color: o.color, value: v != null ? fmtVal(v) : '—' }
+    }),
+    legend: () => ind.outputs.map(o => ({ key: sKey(o), label: o.label, color: o.color })),
+  }
+}
 
-/**
- * 第三方 TA 指标子图 (可选 extra `ta`)。
- * 由上层在确认后端已装 extra 后, 作为 extraSubCharts 传入; column 是数据来源列 CSV,
- * 上层据此拼接 /api/kline/daily 的 ta_columns 参数。
- */
-export const TA_SUB_CHARTS: SubChartDef[] = [
-  {
-    key: 'ta_adx', label: 'ADX', column: 'ta_adx_14', height: 72,
-    yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data) => [{
-      name: 'ADX', key: 'ta_adx_14', type: 'line',
-      data: data.map(d => d.ta_adx_14 != null ? Number(d.ta_adx_14) : '-'),
-      smooth: true, symbol: 'none', animation: false,
-      lineStyle: { width: 1, color: '#FACC15' }, itemStyle: { color: '#FACC15' },
-    }],
-    buildInfo: (d) => d ? [{ label: 'ADX', color: '#FACC15', value: d.ta_adx_14 != null ? d.ta_adx_14.toFixed(1) : '—' }] : [],
-    legend: () => [{ key: 'ta_adx_14', label: 'ADX', color: '#FACC15' }],
-  },
-  {
-    key: 'ta_cci', label: 'CCI', column: 'ta_cci_14', height: 72,
-    buildSeries: (data) => [{
-      name: 'CCI', key: 'ta_cci_14', type: 'line',
-      data: data.map(d => d.ta_cci_14 != null ? Number(d.ta_cci_14) : '-'),
-      smooth: true, symbol: 'none', animation: false,
-      lineStyle: { width: 1, color: '#3B82F6' }, itemStyle: { color: '#3B82F6' },
-    }],
-    buildInfo: (d) => d ? [{ label: 'CCI', color: '#3B82F6', value: d.ta_cci_14 != null ? d.ta_cci_14.toFixed(1) : '—' }] : [],
-    legend: () => [{ key: 'ta_cci_14', label: 'CCI', color: '#3B82F6' }],
-  },
-  {
-    key: 'ta_willr', label: 'W%R', column: 'ta_willr_14', height: 72,
-    yAxisConfig: { min: -100, max: 0 },
-    buildSeries: (data) => [{
-      name: 'W%R', key: 'ta_willr_14', type: 'line',
-      data: data.map(d => d.ta_willr_14 != null ? Number(d.ta_willr_14) : '-'),
-      smooth: true, symbol: 'none', animation: false,
-      lineStyle: { width: 1, color: '#F97316' }, itemStyle: { color: '#F97316' },
-    }],
-    buildInfo: (d) => d ? [{ label: 'W%R', color: '#F97316', value: d.ta_willr_14 != null ? d.ta_willr_14.toFixed(1) : '—' }] : [],
-    legend: () => [{ key: 'ta_willr_14', label: 'W%R', color: '#F97316' }],
-  },
-  {
-    key: 'ta_stoch', label: 'STOCH', column: 'ta_stoch_k,ta_stoch_d', height: 72,
-    yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data) => [
-      {
-        name: 'K', key: 'ta_stoch_k', type: 'line',
-        data: data.map(d => d.ta_stoch_k != null ? Number(d.ta_stoch_k) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' }, itemStyle: { color: '#FACC15' },
-      },
-      {
-        name: 'D', key: 'ta_stoch_d', type: 'line',
-        data: data.map(d => d.ta_stoch_d != null ? Number(d.ta_stoch_d) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' }, itemStyle: { color: '#8B5CF6' },
-      },
-    ],
-    buildInfo: (d) => d ? [
-      { label: 'K', color: '#FACC15', value: d.ta_stoch_k != null ? d.ta_stoch_k.toFixed(1) : '—' },
-      { label: 'D', color: '#8B5CF6', value: d.ta_stoch_d != null ? d.ta_stoch_d.toFixed(1) : '—' },
-    ] : [],
-    legend: () => [
-      { key: 'ta_stoch_k', label: 'K', color: '#FACC15' },
-      { key: 'ta_stoch_d', label: 'D', color: '#8B5CF6' },
-    ],
-  },
-  {
-    key: 'ta_aroon', label: 'AROON', column: 'ta_aroon_up,ta_aroon_down', height: 72,
-    yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data) => [
-      {
-        name: 'UP', key: 'ta_aroon_up', type: 'line',
-        data: data.map(d => d.ta_aroon_up != null ? Number(d.ta_aroon_up) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#C74040' }, itemStyle: { color: '#C74040' },
-      },
-      {
-        name: 'DOWN', key: 'ta_aroon_down', type: 'line',
-        data: data.map(d => d.ta_aroon_down != null ? Number(d.ta_aroon_down) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#2D9B65' }, itemStyle: { color: '#2D9B65' },
-      },
-    ],
-    buildInfo: (d) => d ? [
-      { label: 'UP', color: '#C74040', value: d.ta_aroon_up != null ? d.ta_aroon_up.toFixed(0) : '—' },
-      { label: 'DOWN', color: '#2D9B65', value: d.ta_aroon_down != null ? d.ta_aroon_down.toFixed(0) : '—' },
-    ] : [],
-    legend: () => [
-      { key: 'ta_aroon_up', label: 'UP', color: '#C74040' },
-      { key: 'ta_aroon_down', label: 'DOWN', color: '#2D9B65' },
-    ],
-  },
-  {
-    key: 'ta_obv', label: 'OBV', column: 'ta_obv', height: 72,
-    buildSeries: (data) => [{
-      name: 'OBV', key: 'ta_obv', type: 'line',
-      data: data.map(d => d.ta_obv != null ? Number(d.ta_obv) : '-'),
-      smooth: true, symbol: 'none', animation: false,
-      lineStyle: { width: 1, color: '#06B6D4' }, itemStyle: { color: '#06B6D4' },
-    }],
-    buildInfo: (d) => d ? [{ label: 'OBV', color: '#06B6D4', value: d.ta_obv != null ? fmtVol(d.ta_obv) : '—' }] : [],
-    legend: () => [{ key: 'ta_obv', label: 'OBV', color: '#06B6D4' }],
-  },
-]
-
-/** 主图叠加指标 (画在 K 线上方, 不占副图空间) */
-export const OVERLAY_INDICATORS: { key: string; label: string }[] = [
-  { key: 'boll', label: 'BOLL' },
-]
+/** 渲染计划 → { 主图叠加序列, 副图定义 } (成交量走特例)。 */
+export function planToLayout(plan: RenderIndicator[]): { overlays: OverlayCol[]; panels: SubChartDef[] } {
+  const panels: SubChartDef[] = []
+  const overlays: OverlayCol[] = []
+  for (const ind of plan) {
+    if (ind.pane === 'panel') {
+      panels.push(ind.special === 'volume' ? volumePanelDef(ind) : genericPanelDef(ind))
+    } else {
+      for (const o of ind.outputs) {
+        overlays.push({
+          key: panelSeriesKey(ind.id, o.key), label: o.label, color: o.color, col: o.col,
+          dashed: ind.id === 'boll',
+        })
+      }
+    }
+  }
+  return { overlays, panels }
+}
 
 interface Props {
   data: OHLC[]
@@ -463,7 +314,6 @@ interface Props {
   ranges?: ChartRange[]
   priceLines?: ChartPriceLine[]
   height?: number
-  showMA?: boolean
   showInfoBar?: boolean
   showMarkers?: boolean
   onToggleMarkers?: () => void
@@ -474,14 +324,10 @@ interface Props {
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
   /** 默认可见蜡烛根数, 默认 60; 'all' = 初始适配显示全部返回数据 */
   visibleBars?: number | 'all'
-  /** 已激活的子图 key 列表 (含 vol, 按点击顺序) */
-  activeIndicators?: string[]
   /** 成交量柱相对前 N 个交易日均量的显示设置 */
   volumeCompare?: VolumeCompareConfig
-  /** 额外子图 (如第三方 TA 指标); 会与内置 SUB_CHARTS 合并参与布局与信息栏 */
-  extraSubCharts?: SubChartDef[]
-  /** 图表读取的指标列 (默认规范列; 自定义周期时由上层传入别名列) */
-  columns?: IndicatorColumns
+  /** 渲染计划 (由上层按后端指标目录 /api/indicators/catalog 生成, 见 ADR-006) */
+  indicators?: RenderIndicator[]
 }
 
 // 序列颜色 (双主题通用); 画布轴/网格/文字等主题相关色走 CT() 动态取
@@ -511,21 +357,17 @@ const SUB_GAP_PX = 4
 function buildSubInfoGraphics(
   data: OHLC[],
   infoIdx: number,
-  activeIndicators: string[],
   subStartTop: number,
   volumeCompare: VolumeCompareConfig,
   subCharts: SubChartDef[],
-  columns: IndicatorColumns,
 ): any[] {
   const d = infoIdx >= 0 && infoIdx < data.length ? data[infoIdx] : null
   const graphics: any[] = []
-  const context: SubChartContext = { compact: false, volumeCompare, columns }
+  const context: SubChartContext = { compact: false, volumeCompare }
   let curTop = subStartTop
 
-  activeIndicators.forEach((key) => {
-    const def = subCharts.find(s => s.key === key)
-    if (!def) return
-
+  subCharts.forEach((def) => {
+    const key = def.key
     const items = def.buildInfo(d, context)
     if (def.key === 'vol' && d) {
       const calcVolMa = (n: number) => {
@@ -612,20 +454,18 @@ function buildOption(
   markers: ChartMarker[] | undefined,
   ranges: ChartRange[] | undefined,
   priceLines: ChartPriceLine[] | undefined,
-  showMA: boolean,
+  overlays: OverlayCol[],
   compact: boolean,
-  activeIndicators: string[],
   containerHeight: number,
   infoIdx: number,
   linkedPrice: number | null | undefined,
   volumeCompare: VolumeCompareConfig,
   subCharts: SubChartDef[],
-  columns: IndicatorColumns,
   hidden: Set<string>,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
-  const hasMA = showMA && columns.ma.some(c => data.some(d => colVal(d, c.col) != null))
+  const hasOverlays = overlays.some(o => data.some(d => colVal(d, o.col) != null))
 
   const markPointData: any[] = []
   if (markers && markers.length > 0) {
@@ -684,13 +524,8 @@ function buildOption(
   const candleBottomPad = 22
 
   let subTotalH = 0
-  const activeSubDefs: SubChartDef[] = []
-  activeIndicators.forEach(key => {
-    const def = subCharts.find(s => s.key === key)
-    if (!def) return
-    activeSubDefs.push(def)
-    subTotalH += INFO_BAR_H + def.height
-  })
+  const activeSubDefs: SubChartDef[] = subCharts
+  activeSubDefs.forEach(def => { subTotalH += INFO_BAR_H + def.height })
   if (activeSubDefs.length > 0) subTotalH += activeSubDefs.length * SUB_GAP_PX
 
   const candleAvail = Math.max(containerHeight - topPad - candleBottomPad - subTotalH, 100)
@@ -828,18 +663,10 @@ function buildOption(
     markLine: markLineData.length > 0 ? { silent: true, symbol: 'none', data: markLineData, animation: false } : undefined,
   })
 
-  if (hasMA) {
-    for (const c of columns.ma) {
-      series.push(ohlcLine(c.label, c.color, data, c.col, { silent: true, key: c.col }))
+  if (hasOverlays) {
+    for (const o of overlays) {
+      series.push(ohlcLine(o.label, o.color, data, o.col, { dashed: o.dashed, silent: true, key: o.key }))
     }
-  }
-
-  // BOLL 布林带 — 需在 activeIndicators 中激活
-  const showBOLL = activeIndicators.includes('boll')
-    && data.some(d => colVal(d, columns.boll.upper) != null || colVal(d, columns.boll.lower) != null)
-  if (showBOLL) {
-    series.push(ohlcLine('BOLL上', BOLL_COLOR, data, columns.boll.upper, { dashed: true, silent: true, key: 'boll_upper' }))
-    series.push(ohlcLine('BOLL下', BOLL_COLOR, data, columns.boll.lower, { dashed: true, silent: true, key: 'boll_lower' }))
   }
 
   // ===== 子图区域 =====
@@ -883,7 +710,7 @@ function buildOption(
 
     xAxisIndices.push(xAxisIdx)
 
-    const subSeries = def.buildSeries(data, { compact, volumeCompare, columns })
+    const subSeries = def.buildSeries(data, { compact, volumeCompare })
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })
@@ -893,7 +720,7 @@ function buildOption(
 
   // 子图信息栏 graphic
   const subStartTop = topPad + candleAvail + candleBottomPad
-  const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare, subCharts, columns)
+  const infoGraphics = buildSubInfoGraphics(data, infoIdx, subStartTop, volumeCompare, subCharts)
 
   // 图例勾选: 按 series.key 过滤被隐藏的序列 (K 线无 key, 恒显示)
   const visibleSeries = hidden.size > 0
@@ -944,7 +771,6 @@ export function EChartsCandlestick({
   ranges,
   priceLines,
   height = 480,
-  showMA = true,
   showInfoBar = true,
   showMarkers: showMarkersProp = true,
   onToggleMarkers: _onToggleMarkers,
@@ -954,10 +780,8 @@ export function EChartsCandlestick({
   onDateClick,
   onPriceDoubleClick,
   visibleBars = 60,
-  activeIndicators = [],
   volumeCompare = { enabled: true, days: 1 },
-  extraSubCharts,
-  columns = DEFAULT_INDICATOR_COLUMNS,
+  indicators = [],
 }: Props) {
   const hoverSurfaceRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -971,11 +795,8 @@ export function EChartsCandlestick({
   // 主题: buildOption/信息栏内部通过 CT() 动态取调色板, 这里只负责切换时触发重建
   const theme = useTheme()
 
-  // 内置 + 额外子图 (第三方 TA); 合并后统一参与布局/信息栏/series 构建
-  const subCharts = useMemo(
-    () => (extraSubCharts && extraSubCharts.length > 0 ? [...SUB_CHARTS, ...extraSubCharts] : SUB_CHARTS),
-    [extraSubCharts],
-  )
+  // 渲染计划 → 布局 (主图叠加 + 副图定义); 全部由后端指标目录驱动 (ADR-006)
+  const { overlays, panels } = useMemo(() => planToLayout(indicators), [indicators])
 
   // 图例勾选: 被隐藏的序列 key (点击图例项切换)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -988,34 +809,23 @@ export function EChartsCandlestick({
   const hoverActiveRef = useRef(false)
 
   // 需要在闭包中访问最新值的变量 — 先声明占位，后面赋值
-  const activeIndicatorsRef = useRef(activeIndicators)
-  activeIndicatorsRef.current = activeIndicators
   const volumeCompareRef = useRef(volumeCompare)
   volumeCompareRef.current = volumeCompare
-  const subChartsRef = useRef(subCharts)
-  subChartsRef.current = subCharts
-  const columnsRef = useRef(columns)
-  columnsRef.current = columns
+  const subChartsRef = useRef(panels)
+  subChartsRef.current = panels
 
-  // 图例分组 (主图叠加 + 各已开启副图); 每项可点勾选/隐藏, key 与 series.key 一致
+  // 图例分组 (主图叠加 + 各副图); 每项可点勾选/隐藏, key 与 series.key 一致
   const legendGroups = useMemo<LegendGroup[]>(() => {
     const groups: LegendGroup[] = []
-    if (showMA) {
-      const items: LegendItem[] = columns.ma.map(c => ({ key: c.col, label: c.label, color: c.color }))
-      if (activeIndicators.includes('boll')) {
-        items.push({ key: 'boll_upper', label: 'BOLL上', color: BOLL_COLOR })
-        items.push({ key: 'boll_lower', label: 'BOLL下', color: BOLL_COLOR })
-      }
-      if (items.length) groups.push({ group: '主图', items })
-    }
-    const context: SubChartContext = { compact: false, volumeCompare, columns }
-    for (const key of activeIndicators) {
-      const def = subCharts.find(s => s.key === key)
-      const items = def?.legend?.(context)
-      if (def && items && items.length) groups.push({ group: def.label, items })
+    const overlayItems: LegendItem[] = overlays.map(o => ({ key: o.key, label: o.label, color: o.color }))
+    if (overlayItems.length) groups.push({ group: '主图', items: overlayItems })
+    const context: SubChartContext = { compact: false, volumeCompare }
+    for (const def of panels) {
+      const items = def.legend?.(context)
+      if (items && items.length) groups.push({ group: def.label, items })
     }
     return groups
-  }, [showMA, columns, activeIndicators, subCharts, volumeCompare])
+  }, [overlays, panels, volumeCompare])
 
   const toggleHidden = useCallback((key: string) => {
     setHidden(prev => {
@@ -1042,11 +852,9 @@ export function EChartsCandlestick({
     const infoGraphics = buildSubInfoGraphics(
       curData,
       idx,
-      activeIndicatorsRef.current,
       subStartTop,
       volumeCompareRef.current,
       subChartsRef.current,
-      columnsRef.current,
     )
     if (infoGraphics.length > 0) {
       chart.setOption({ graphic: infoGraphics }, { lazyUpdate: true })
@@ -1054,9 +862,7 @@ export function EChartsCandlestick({
   }).current
 
   // 计算子图总高度
-  const activeSubDefs = activeIndicators
-    .map(key => subCharts.find(s => s.key === key))
-    .filter((d): d is SubChartDef => !!d)
+  const activeSubDefs = panels
 
   let subTotalH = 0
   activeSubDefs.forEach(def => { subTotalH += INFO_BAR_H + def.height })
@@ -1138,12 +944,12 @@ export function EChartsCandlestick({
     html += `</div>`
 
     // 第二行: MA + BOLL
-    if (showMA) {
-      html += maBollInfoHTML(d, columns, activeIndicators.includes('boll'))
+    if (overlays.length) {
+      html += overlayInfoHTML(d, overlays)
     }
 
     return html
-  }, [data, stockInfo, showMA, activeIndicators, columns])
+  }, [data, stockInfo, overlays])
   getInfoBarHTMLRef.current = getInfoBarHTML
 
   // data/symbol 变化时重置 infoIdx:
@@ -1331,7 +1137,7 @@ export function EChartsCandlestick({
         markPoint: markPointData.length > 0 ? { data: markPointData, animation: false } : undefined,
       })
     }
-    if (activeIndicatorsRef.current.includes('vol')) {
+    if (subChartsRef.current.some(d => d.key === 'vol')) {
       seriesUpdates.push({
         name: '成交量',
         label: { show: volumeCompareRef.current.enabled && !compact },
@@ -1350,13 +1156,12 @@ export function EChartsCandlestick({
       showMarkersProp ? markers : undefined,
       ranges,
       priceLines,
-      showMA, compactRef.current,
-      activeIndicators, chartHeight,
+      overlays, compactRef.current,
+      chartHeight,
       infoIdxRef.current,
       linkedPrice,
       volumeCompare,
-      subCharts,
-      columns,
+      panels,
       hidden,
     )
 
@@ -1375,7 +1180,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, subCharts, columns, hidden])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMarkersProp, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, overlays, panels, hidden])
 
   // 渲染信息栏容器 (内容由 JS 直接写入)
   const initialHTML = useMemo(() => {
@@ -1406,11 +1211,11 @@ export function EChartsCandlestick({
       html += `<span style="color:${CT().text}">${turnoverRate.toFixed(2)}%</span>`
     }
     html += `</div>`
-    if (showMA) {
-      html += maBollInfoHTML(d, columns, activeIndicators.includes('boll'))
+    if (overlays.length) {
+      html += overlayInfoHTML(d, overlays)
     }
     return html
-  }, [columns, showMA, activeIndicators, data, stockInfo])
+  }, [overlays, data, stockInfo])
 
   return (
     <div ref={hoverSurfaceRef} className="w-full">

@@ -41,7 +41,7 @@ export const storage = {
   /** 个股日K成交量对比设置 */
   stockVolumeCompare:   kv<{ enabled: boolean; days: number }>('stock_volume_compare'),
 
-  /** 个股日K图表指标参数 (自定义周期; 见 lib/chartIndicators.ts) */
+  /** 个股日K图表指标参数 (自定义周期; 见 lib/indicatorCatalog.ts) */
   chartIndicatorParams: kv<unknown>('chart_indicator_params'),
 
   /** 个股详情多日分时周期 */

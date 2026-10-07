@@ -6,17 +6,14 @@ import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { Modal } from '@/components/Modal'
 import {
-  DEFAULT_CHART_PARAMS,
+  buildPlan,
   buildSpecString,
-  deriveColumns,
   normalizeParams,
-  type ChartIndicatorParams,
-} from '@/lib/chartIndicators'
+  type CatalogIndicator,
+  type IndicatorParams,
+} from '@/lib/indicatorCatalog'
 import {
   EChartsCandlestick,
-  OVERLAY_INDICATORS,
-  SUB_CHARTS,
-  TA_SUB_CHARTS,
   type ChartMarker,
   type ChartPriceLine,
   type ChartRange,
@@ -26,7 +23,11 @@ import {
 
 const SUB_INFO_H = 16
 const SUB_GAP = 4
+const PANEL_H = 72
+const PANEL_H_VOLUME = 84
 const DEFAULT_VOLUME_COMPARE: VolumeCompareConfig = { enabled: true, days: 1 }
+/** 默认开启的指标 (主图均线 + 成交量副图)。 */
+const DEFAULT_ACTIVE = ['ma', 'vol']
 
 function normalizeVolumeCompare(config: VolumeCompareConfig): VolumeCompareConfig {
   return {
@@ -46,7 +47,6 @@ interface Props {
   showLimitMarkers?: boolean
   showIndicatorControls?: boolean
   showMarkerToggle?: boolean
-  showMA?: boolean
   showInfoBar?: boolean
   /** 初始可见蜡烛根数; 'all' = 适配显示全部数据 */
   visibleBars?: number | 'all'
@@ -98,6 +98,15 @@ export function getDefaultRange(): { start: string; end: string } {
   return { start, end }
 }
 
+/** 指标目录 — 全应用共享同一 query 缓存 (后端注册表, 见 ADR-006)。 */
+function useIndicatorCatalog() {
+  return useQuery({
+    queryKey: QK.indicatorCatalog,
+    queryFn: () => api.indicatorCatalog(),
+    staleTime: 30 * 60_000,
+  })
+}
+
 /** 解析逗号/空格分隔的周期输入 → 正整数数组 (非法/越界交给 normalizeParams 回退默认)。 */
 function parsePeriods(text: string): number[] {
   return text
@@ -114,7 +123,7 @@ function SettingRow({ label, value, hint, onChange }: {
 }) {
   return (
     <label className="flex items-center gap-3">
-      <span className="w-16 shrink-0 text-xs text-secondary">{label}</span>
+      <span className="w-20 shrink-0 text-xs text-secondary">{label}</span>
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -150,30 +159,22 @@ function PickerGroup({ label, children }: { label: string; children: ReactNode }
   )
 }
 
-/** 指标参数设置面板: 改周期后由上层请求对应别名列 (见 lib/chartIndicators.ts 与 ADR-005)。 */
-function IndicatorSettingsPanel({ params, onChange, onClose }: {
-  params: ChartIndicatorParams
-  onChange: (p: ChartIndicatorParams) => void
+/** 指标参数设置面板: 行由后端目录的 params schema 驱动 (ADR-006)。 */
+function IndicatorSettingsPanel({ catalog, params, onChange, onClose }: {
+  catalog: CatalogIndicator[]
+  params: IndicatorParams
+  onChange: (p: IndicatorParams) => void
   onClose: () => void
 }) {
-  const [ma, setMa] = useState(params.ma.join(', '))
-  const [rsi, setRsi] = useState(params.rsi.join(', '))
-  const [macd, setMacd] = useState(params.macd.join(', '))
-  const [kdj, setKdj] = useState(params.kdj.join(', '))
-  const [boll, setBoll] = useState(params.boll.join(', '))
+  const withParams = useMemo(() => catalog.filter(i => i.params.length > 0), [catalog])
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(withParams.map(i => [i.id, (params[i.id] ?? []).join(', ')])),
+  )
 
   const apply = () => {
-    onChange(normalizeParams({
-      ma: parsePeriods(ma),
-      rsi: parsePeriods(rsi),
-      macd: parsePeriods(macd),
-      kdj: parsePeriods(kdj),
-      boll: parsePeriods(boll),
-    }))
-    onClose()
-  }
-  const reset = () => {
-    onChange(normalizeParams(DEFAULT_CHART_PARAMS))
+    const next: Record<string, number[]> = {}
+    for (const [id, text] of Object.entries(draft)) next[id] = parsePeriods(text)
+    onChange(normalizeParams(catalog, next))
     onClose()
   }
 
@@ -186,13 +187,17 @@ function IndicatorSettingsPanel({ params, onChange, onClose }: {
       <p className="text-[11px] text-muted leading-4">
         改周期后自动向后端请求对应指标 (别名列), 不影响选股/回测口径。留空或非法值回退默认。
       </p>
-      <SettingRow label="均线 MA" value={ma} hint="5, 10, 20, 60" onChange={setMa} />
-      <SettingRow label="RSI" value={rsi} hint="6, 14, 24" onChange={setRsi} />
-      <SettingRow label="MACD" value={macd} hint="12, 26, 9 (快,慢,信号)" onChange={setMacd} />
-      <SettingRow label="KDJ" value={kdj} hint="9" onChange={setKdj} />
-      <SettingRow label="BOLL" value={boll} hint="20, 2 (周期,倍数)" onChange={setBoll} />
+      {withParams.map(i => (
+        <SettingRow
+          key={i.id}
+          label={i.label}
+          value={draft[i.id] ?? ''}
+          hint={i.params.map(p => `${p.label} ${p.min}-${p.max}`).join(' / ')}
+          onChange={v => setDraft(d => ({ ...d, [i.id]: v }))}
+        />
+      ))}
       <div className="flex justify-end gap-2 pt-1">
-        <button onClick={reset} className="px-3 py-1 rounded text-xs bg-elevated text-muted hover:text-secondary cursor-pointer">恢复默认</button>
+        <button onClick={() => { onChange(normalizeParams(catalog, {})); onClose() }} className="px-3 py-1 rounded text-xs bg-elevated text-muted hover:text-secondary cursor-pointer">恢复默认</button>
         <button onClick={apply} className="px-3 py-1 rounded text-xs bg-accent/20 text-accent cursor-pointer">应用</button>
       </div>
     </div>
@@ -210,7 +215,6 @@ export function StockDailyKChart({
   showLimitMarkers = true,
   showIndicatorControls = true,
   showMarkerToggle = true,
-  showMA = true,
   showInfoBar = true,
   visibleBars = 60,
   linkedPrice,
@@ -218,44 +222,46 @@ export function StockDailyKChart({
   onPriceDoubleClick,
   extColumns,
 }: Props) {
-  const [activeIndicators, setActiveIndicators] = useState<string[]>(['vol'])
+  const [activeIds, setActiveIds] = useState<string[]>(DEFAULT_ACTIVE)
   const [showMarkers, setShowMarkers] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const [volumeCompare, setVolumeCompare] = useState<VolumeCompareConfig>(() =>
     normalizeVolumeCompare(storage.stockVolumeCompare.get(DEFAULT_VOLUME_COMPARE)),
   )
-  const [indicatorParams, setIndicatorParams] = useState<ChartIndicatorParams>(() =>
-    normalizeParams(storage.chartIndicatorParams.get(null)),
-  )
-  const [showSettings, setShowSettings] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
+  // 原始参数持久化; 归一化需等目录到达 (params schema 决定取值范围)
+  const [rawParams, setRawParams] = useState<unknown>(() => storage.chartIndicatorParams.get(null))
   const dateRange = externalDateRange ?? getDefaultRange()
 
-  // 自定义指标参数 → 请求编码 (全默认时为空 → 请求/cache key 与既有逐位一致)
-  const indicatorSpecs = useMemo(() => buildSpecString(indicatorParams), [indicatorParams])
-  const columns = useMemo(() => deriveColumns(indicatorParams), [indicatorParams])
+  const catalogQuery = useIndicatorCatalog()
+  const catalog = useMemo(() => catalogQuery.data?.indicators ?? [], [catalogQuery.data])
 
-  // 已开启的第三方 TA 子图对应的数据列 (逗号分隔); 未开启时为空 → 请求与 cache key 不变
-  const taColumns = useMemo(
-    () => activeIndicators
-      .map(k => TA_SUB_CHARTS.find(s => s.key === k)?.column)
-      .filter((c): c is string => !!c)
-      .join(','),
-    [activeIndicators],
-  )
+  const params = useMemo(() => normalizeParams(catalog, rawParams), [catalog, rawParams])
+  const indicatorSpecs = useMemo(() => buildSpecString(catalog, params), [catalog, params])
+  const plan = useMemo(() => buildPlan(catalog, activeIds, params), [catalog, activeIds, params])
+
+  // 已开启的 TA 指标数据列 (逗号分隔); 未开启/未装 extra 时为空 → 请求与 cache key 不变
+  const taColumns = useMemo(() => catalog
+    .filter(i => i.source === 'ta' && i.available && activeIds.includes(i.id))
+    .flatMap(i => i.outputs.map(o => o.canonical_col))
+    .filter((c): c is string => !!c)
+    .join(','), [catalog, activeIds])
+
+  // 选择器分组 (目录驱动; TA 未装时该组不出现)
+  const pickerGroups = useMemo(() => {
+    const avail = catalog.filter(i => i.available)
+    return [
+      { label: '主图叠加', items: avail.filter(i => i.pane === 'overlay' && i.source === 'builtin') },
+      { label: '副图', items: avail.filter(i => i.pane === 'panel' && i.source === 'builtin') },
+      { label: 'TA', items: avail.filter(i => i.source === 'ta') },
+    ].filter(g => g.items.length > 0)
+  }, [catalog])
 
   // 查询配置统一来自 klineDailyQueryOptions, 与 StockPanel 信息条/邻近预取共享同一 cache key (只发一次请求)
   const kline = useQuery({
     ...klineDailyQueryOptions(symbol, dateRange, extColumns, taColumns || undefined, indicatorSpecs || undefined),
     enabled: !!symbol,
   })
-
-  // TA 能力门控: 后端未装可选 extra `ta` 时因子库无 ta_ 条目, 不显示 TA 开关
-  const taCap = useQuery({
-    queryKey: QK.factorLibrary('stock'),
-    queryFn: () => api.factorLibrary('stock'),
-    staleTime: 5 * 60_000,
-  })
-  const taSubCharts = (taCap.data?.factors ?? []).some(f => f.id.startsWith('ta_')) ? TA_SUB_CHARTS : []
 
   const rows = useMemo(() => toOHLC(kline.data?.rows ?? []), [kline.data?.rows])
   const stockInfo = kline.data?.stock_info
@@ -265,8 +271,8 @@ export function StockDailyKChart({
     ...(showLimitMarkers ? limitMarkers : []),
   ], [limitMarkers, markers, showLimitMarkers])
 
-  const toggleIndicator = useCallback((key: string) => {
-    setActiveIndicators(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
+  const toggleIndicator = useCallback((id: string) => {
+    setActiveIds(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id])
   }, [])
 
   const updateVolumeCompare = useCallback((patch: Partial<VolumeCompareConfig>) => {
@@ -277,18 +283,16 @@ export function StockDailyKChart({
     })
   }, [])
 
-  const updateIndicatorParams = useCallback((next: ChartIndicatorParams) => {
-    const norm = normalizeParams(next)
-    setIndicatorParams(norm)
-    storage.chartIndicatorParams.set(norm)
+  const updateParams = useCallback((next: IndicatorParams) => {
+    setRawParams(next)
+    storage.chartIndicatorParams.set(next)
   }, [])
 
-  const activeSubDefs = activeIndicators
-    .map(key => SUB_CHARTS.find(s => s.key === key))
-    .filter((d): d is typeof SUB_CHARTS[number] => !!d)
+  // 容器高度: 主图 + 各副图 (成交量副图更高)
+  const panelPlan = plan.filter(p => p.pane === 'panel')
   let subExtraH = 0
-  activeSubDefs.forEach(def => { subExtraH += SUB_INFO_H + def.height })
-  if (activeSubDefs.length > 0) subExtraH += activeSubDefs.length * SUB_GAP + 14
+  panelPlan.forEach(p => { subExtraH += SUB_INFO_H + (p.special === 'volume' ? PANEL_H_VOLUME : PANEL_H) })
+  if (panelPlan.length > 0) subExtraH += panelPlan.length * SUB_GAP + 14
   const chartHeight = height + subExtraH
 
   if (!symbol) return null
@@ -307,7 +311,7 @@ export function StockDailyKChart({
           >
             指标 {showPicker ? '▴' : '▾'}
           </button>
-          {activeIndicators.includes('vol') && (
+          {activeIds.includes('vol') && (
             <div className="ml-0.5 flex h-5 items-center gap-1.5 border-l border-border/70 pl-2">
               <span className="text-[10px] text-muted">量比</span>
               <button
@@ -360,23 +364,18 @@ export function StockDailyKChart({
         </div>
         {showPicker && (
           <div className="flex flex-col gap-1 px-1 pb-1">
-            <PickerGroup label="主图叠加">
-              {OVERLAY_INDICATORS.map(ind => (
-                <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
-              ))}
-            </PickerGroup>
-            <PickerGroup label="副图">
-              {SUB_CHARTS.map(ind => (
-                <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
-              ))}
-            </PickerGroup>
-            {taSubCharts.length > 0 && (
-              <PickerGroup label="TA">
-                {taSubCharts.map(ind => (
-                  <IndicatorChip key={ind.key} label={ind.label} active={activeIndicators.includes(ind.key)} onClick={() => toggleIndicator(ind.key)} />
+            {pickerGroups.map(g => (
+              <PickerGroup key={g.label} label={g.label}>
+                {g.items.map(ind => (
+                  <IndicatorChip
+                    key={ind.id}
+                    label={ind.label}
+                    active={activeIds.includes(ind.id)}
+                    onClick={() => toggleIndicator(ind.id)}
+                  />
                 ))}
               </PickerGroup>
-            )}
+            ))}
           </div>
         )}
         </>
@@ -393,7 +392,6 @@ export function StockDailyKChart({
           ranges={ranges}
           priceLines={priceLines}
           height={chartHeight - 22}
-          showMA={showMA}
           showInfoBar={showInfoBar}
           showMarkers={showMarkers}
           stockInfo={stockInfo}
@@ -402,10 +400,8 @@ export function StockDailyKChart({
           onDateClick={onDateClick}
           onPriceDoubleClick={onPriceDoubleClick}
           visibleBars={visibleBars}
-          activeIndicators={activeIndicators}
           volumeCompare={volumeCompare}
-          extraSubCharts={taSubCharts}
-          columns={columns}
+          indicators={plan}
         />
       )}
       {showSettings && (
@@ -415,8 +411,9 @@ export function StockDailyKChart({
           panelClassName="w-[92vw] max-w-sm bg-surface border border-border rounded-card shadow-xl"
         >
           <IndicatorSettingsPanel
-            params={indicatorParams}
-            onChange={updateIndicatorParams}
+            catalog={catalog}
+            params={params}
+            onChange={updateParams}
             onClose={() => setShowSettings(false)}
           />
         </Modal>
