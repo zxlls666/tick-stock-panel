@@ -201,7 +201,7 @@ export function startBacktest(params: {
   holding_days?: number
   asset_type?: 'stock' | 'etf'
   minute_fill?: boolean
-  regime_filter?: { states?: string[]; min_score?: number } | null
+  regime_filter?: { states?: string[]; min_score?: number; max_score?: number } | null
 }): void {
   // 取消之前的任务状态
   if (eventSource) {

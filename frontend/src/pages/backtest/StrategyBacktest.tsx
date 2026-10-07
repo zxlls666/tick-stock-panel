@@ -944,6 +944,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
   // 市场环境过滤(空=不过滤)
   const [regimeStates, setRegimeStates] = useState<string[]>(saved?.regimeStates ?? [])
   const [regimeMinScore, setRegimeMinScore] = useState<number | ''>(saved?.regimeMinScore ?? '')
+  const [regimeMaxScore, setRegimeMaxScore] = useState<number | ''>(saved?.regimeMaxScore ?? '')
   const [settingsOpen, setSettingsOpen] = useState(false)
   // 分钟K成交价细化: 不改变信号日或成交日, 依赖分钟K批量数据
   const { data: caps } = useCapabilities()
@@ -998,9 +999,11 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
     if (rf && typeof rf === 'object' && !Array.isArray(rf)) {
       setRegimeStates(Array.isArray(rf.states) ? rf.states.map(String) : [])
       setRegimeMinScore(rf.min_score != null ? Number(rf.min_score) : '')
+      setRegimeMaxScore(rf.max_score != null ? Number(rf.max_score) : '')
     } else {
       setRegimeStates([])
       setRegimeMinScore('')
+      setRegimeMaxScore('')
     }
     toast(`已载入「${loadCandidate.name}」配置，可直接复测`, 'success')
     onLoadConsumed?.()
@@ -1159,6 +1162,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
         minuteFill: isMinuteStrategy ? false : highGranularity,
         regimeStates,
         regimeMinScore,
+        regimeMaxScore,
         params: strategyParams,
         overrides,
         strategyConfigSignature: strategyDetail.data
@@ -1195,10 +1199,11 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
       mode: simMode,
       holding_days: Number(holdingDays) || 5,
       minute_fill: isMinuteStrategy ? false : highGranularity,
-      regime_filter: regimeStates.length > 0 || regimeMinScore !== ''
+      regime_filter: regimeStates.length > 0 || regimeMinScore !== '' || regimeMaxScore !== ''
         ? {
             ...(regimeStates.length > 0 ? { states: regimeStates } : {}),
             ...(regimeMinScore !== '' ? { min_score: Number(regimeMinScore) } : {}),
+            ...(regimeMaxScore !== '' ? { max_score: Number(regimeMaxScore) } : {}),
           }
         : null,
     })
@@ -1498,6 +1503,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
   const resultRegimeFilter = result?.config?.regime_filter as {
     states?: string[]
     min_score?: number
+    max_score?: number
   } | null | undefined
   const resultRegimeSummary = resultRegimeFilter
     ? [
@@ -1505,6 +1511,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
           ? resultRegimeFilter.states.map(state => REGIME_STATE_LABELS[state as keyof typeof REGIME_STATE_LABELS] ?? state).join('/')
           : null,
         resultRegimeFilter.min_score != null ? `最低 ${resultRegimeFilter.min_score} 分` : null,
+        resultRegimeFilter.max_score != null ? `最高 ${resultRegimeFilter.max_score} 分` : null,
       ].filter(Boolean).join(' · ')
     : ''
   const selectionStats = result?.stats?.selection as Record<string, number | boolean> | undefined
@@ -1996,6 +2003,10 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
               <input type="number" min={0} max={100} value={regimeMinScore} placeholder="不限"
                 onChange={e => setRegimeMinScore(e.target.value ? Number(e.target.value) : '')}
                 className="w-14 h-6 px-1 rounded border border-border bg-base text-[11px] text-foreground text-center focus:outline-none focus:border-accent/50" />
+              <span className="text-[10px] text-muted ml-1">最高分</span>
+              <input type="number" min={0} max={100} value={regimeMaxScore} placeholder="不限"
+                onChange={e => setRegimeMaxScore(e.target.value ? Number(e.target.value) : '')}
+                className="w-14 h-6 px-1 rounded border border-border bg-base text-[11px] text-foreground text-center focus:outline-none focus:border-accent/50" />
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -2012,8 +2023,8 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
                 </button>
               )
             })}
-            {(regimeStates.length > 0 || regimeMinScore !== '') && (
-              <button onClick={() => { setRegimeStates([]); setRegimeMinScore('') }}
+            {(regimeStates.length > 0 || regimeMinScore !== '' || regimeMaxScore !== '') && (
+              <button onClick={() => { setRegimeStates([]); setRegimeMinScore(''); setRegimeMaxScore('') }}
                 className="text-[10px] text-muted hover:text-danger px-1">清除</button>
             )}
           </div>

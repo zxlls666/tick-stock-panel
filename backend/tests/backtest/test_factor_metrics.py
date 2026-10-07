@@ -444,6 +444,18 @@ def test_align_regime_t_minus_one_is_pure_and_fail_closed_in_required_range():
     assert aggregated_mask is not None
     assert aggregated_mask.tolist() == [True, True, False]
 
+    # min_score + max_score 组成闭区间: 只保留 [45, 55] 内的 regime score
+    band_mask = build_regime_filter_mask(
+        labels,
+        {"min_score": 45, "max_score": 55},
+        lean_regimes,
+        required_start=date(2026, 1, 6),
+        required_end=date(2026, 1, 7),
+    )
+    assert band_mask is not None
+    # 前一日 score: 1/5=60 (区间外) → False; 1/6=50 (区间内) → True
+    assert band_mask.tolist() == [True, False, True]
+
     with pytest.raises(ValueError, match="缺少前一交易日环境"):
         align_regime_t_minus_one(
             labels,
@@ -466,9 +478,11 @@ def test_clamp_formal_start_for_regime():
     # 面板首日早于正式起点 (已有预热日) → 不动
     assert clamp_formal_start_for_regime(labels, date(2025, 8, 19), filt) == date(2025, 8, 19)
 
-    # 过滤未启用 / 空 filter (无 states 无 min_score) / 起点 None → 不动
+    # 过滤未启用 / 空 filter (无 states 无 min/max_score) / 起点 None → 不动
     assert clamp_formal_start_for_regime(labels, date(2025, 8, 18), None) == date(2025, 8, 18)
     assert clamp_formal_start_for_regime(labels, date(2025, 8, 18), {}) == date(2025, 8, 18)
+    # 仅 max_score 也算启用过滤 → 同样顺延 (has_score 需覆盖上下界)
+    assert clamp_formal_start_for_regime(labels, date(2025, 8, 18), {"max_score": 45}) == date(2025, 8, 19)
     assert clamp_formal_start_for_regime(labels, None, filt) is None
 
     # 面板只有一天, 无法顺延 → 原样返回 (由 fail-closed 校验兜底)

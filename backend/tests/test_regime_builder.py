@@ -425,6 +425,41 @@ def test_build_regime_mask_min_score(tmp_path):
     assert mask.tolist() == [True, False, True]
 
 
+def test_build_regime_mask_max_score(tmp_path):
+    """max_score 过滤: regime[T-1] 的 score <= max_score 才允许入场。"""
+    from app.backtest.strategy import StrategyBacktestService
+
+    regime_builder.upsert_regime_history(tmp_path, pl.DataFrame({
+        "date": [date(2026, 1, 1), date(2026, 1, 2)],
+        "state": ["lean_weak", "strong"],
+        "score": [40, 80],
+    }))
+    labels = ("2026-01-01", "2026-01-02", "2026-01-03")
+    mask = StrategyBacktestService._build_regime_mask(
+        labels, {"max_score": 45}, tmp_path,
+    )
+    # 1/2 entry 由 1/1(40 <= 45) 决定 → True
+    # 1/3 entry 由 1/2(80 > 45) 决定 → False
+    assert mask.tolist() == [True, True, False]
+
+
+def test_build_regime_mask_score_band(tmp_path):
+    """min_score 与 max_score 同给 → 只保留 [min, max] 区间内的 regime score。"""
+    from app.backtest.strategy import StrategyBacktestService
+
+    regime_builder.upsert_regime_history(tmp_path, pl.DataFrame({
+        "date": [date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 3)],
+        "state": ["lean_weak", "range", "lean_strong"],
+        "score": [40, 50, 65],
+    }))
+    labels = ("2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04")
+    mask = StrategyBacktestService._build_regime_mask(
+        labels, {"min_score": 45, "max_score": 60}, tmp_path,
+    )
+    # entry 由前一日 score 决定: 40 → False, 50 → True, 65 → False
+    assert mask.tolist() == [True, False, True, False]
+
+
 def test_build_regime_mask_none_when_no_filter():
     """regime_filter 为 None → 返回 None(不过滤)。"""
     from app.backtest.strategy import StrategyBacktestService

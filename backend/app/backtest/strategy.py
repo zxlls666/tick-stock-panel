@@ -569,8 +569,9 @@ class StrategyBacktestConfig:
     holding_days: int = 5
     # 分钟K精确成交: 开启后用当日分钟K确定穿越价/VWAP (需 Pro+ 分钟K能力)
     minute_fill: bool = False
-    # 市场环境过滤: {"states": ["strong",...], "min_score": 60}。
-    # 强制 T-1: regime[T-1] 决定 entry[T](防未来函数)。None=不过滤。
+    # 市场环境过滤: {"states": ["strong",...], "min_score": 60, "max_score": 45}。
+    # states 精确匹配 5 档; min_score/max_score 为含端点的分数上下界 (可只给其一),
+    # 三者 AND 组合; 强制 T-1: regime[T-1] 决定 entry[T](防未来函数)。None=不过滤。
     regime_filter: dict | None = None
 
     def __post_init__(self) -> None:
@@ -2214,7 +2215,8 @@ class StrategyBacktestService:
             return None
         allowed_states = set(regime_filter.get("states") or [])
         min_score = regime_filter.get("min_score")
-        if not allowed_states and min_score is None:
+        max_score = regime_filter.get("max_score")
+        if not allowed_states and min_score is None and max_score is None:
             return None
         if data_dir is None:
             raise ValueError("市场环境过滤不可用: 未找到环境数据目录")

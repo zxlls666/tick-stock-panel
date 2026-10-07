@@ -52,7 +52,10 @@ def clamp_formal_start_for_regime(
     if not regime_filter or required_start is None:
         return required_start
     has_states = bool(regime_filter.get("states") or [])
-    has_score = regime_filter.get("min_score") is not None
+    has_score = (
+        regime_filter.get("min_score") is not None
+        or regime_filter.get("max_score") is not None
+    )
     if not (has_states or has_score):
         return required_start
     if len(labels) < 2:
@@ -137,6 +140,11 @@ def build_regime_filter_mask(
     level can be filtered on its own. Callers that want the aggregated
     three-level view must list the raw states explicitly, e.g.
     ``["strong", "lean_strong"]`` for the strong bucket.
+
+    Score bounds are inclusive and AND-combined with states: ``min_score``
+    keeps ``score >= min_score`` (avoid weak regimes), ``max_score`` keeps
+    ``score <= max_score`` (e.g. only trade in weak/range). Given both, the
+    kept band is ``min_score <= score <= max_score``.
     """
     if not regime_filter:
         return None
@@ -145,7 +153,8 @@ def build_regime_filter_mask(
         for state in (regime_filter.get("states") or [])
     }
     min_score = regime_filter.get("min_score")
-    if not allowed_states and min_score is None:
+    max_score = regime_filter.get("max_score")
+    if not allowed_states and min_score is None and max_score is None:
         return None
 
     aligned = align_regime_t_minus_one(
@@ -162,5 +171,6 @@ def build_regime_filter_mask(
         mask[index] = (
             (not allowed_states or state in allowed_states)
             and (min_score is None or score >= float(min_score))
+            and (max_score is None or score <= float(max_score))
         )
     return mask

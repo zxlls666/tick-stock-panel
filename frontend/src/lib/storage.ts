@@ -138,6 +138,7 @@ export const storage = {
     minuteFill?: boolean
     regimeStates?: string[]
     regimeMinScore?: number | ''
+    regimeMaxScore?: number | ''
     params?: Record<string, any>
     overrides?: Record<string, any>
     strategyConfigSignature?: string
