@@ -2401,13 +2401,14 @@ export const api = {
   redetectCapabilities: () =>
     request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
 
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, taColumns?: string) =>
+  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, taColumns?: string, indicatorSpecs?: string) =>
     request<KlineDailyResponse>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
       + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : '')
-      + (taColumns ? `&ta_columns=${encodeURIComponent(taColumns)}` : ''),
+      + (taColumns ? `&ta_columns=${encodeURIComponent(taColumns)}` : '')
+      + (indicatorSpecs ? `&indicator_specs=${encodeURIComponent(indicatorSpecs)}` : ''),
     ),
   klineDailyLatest: (symbol: string) =>
     request<KlineDailyLatestResponse>(

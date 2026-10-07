@@ -4,6 +4,14 @@ import { api, type KlineRow } from '@/lib/api'
 import { klineDailyQueryOptions } from '@/lib/kline'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
+import { Modal } from '@/components/Modal'
+import {
+  DEFAULT_CHART_PARAMS,
+  buildSpecString,
+  deriveColumns,
+  normalizeParams,
+  type ChartIndicatorParams,
+} from '@/lib/chartIndicators'
 import {
   EChartsCandlestick,
   OVERLAY_INDICATORS,
@@ -57,35 +65,13 @@ export function toOHLC(rows: KlineRow[]): OHLC[] {
   return rows
     .filter(isValidRow)
     .map(r => ({
+      ...(r as Record<string, unknown>),
       date: typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date),
       open: Number(r.open),
       high: Number(r.high),
       low: Number(r.low),
       close: Number(r.close),
       volume: Number(r.volume ?? 0),
-      ma5: r.ma5 != null ? Number(r.ma5) : null,
-      ma10: r.ma10 != null ? Number(r.ma10) : null,
-      ma20: r.ma20 != null ? Number(r.ma20) : null,
-      ma60: r.ma60 != null ? Number(r.ma60) : null,
-      macd_dif: r.macd_dif != null ? Number(r.macd_dif) : null,
-      macd_dea: r.macd_dea != null ? Number(r.macd_dea) : null,
-      macd_hist: r.macd_hist != null ? Number(r.macd_hist) : null,
-      rsi_6: r.rsi_6 != null ? Number(r.rsi_6) : null,
-      rsi_14: r.rsi_14 != null ? Number(r.rsi_14) : null,
-      rsi_24: r.rsi_24 != null ? Number(r.rsi_24) : null,
-      kdj_k: r.kdj_k != null ? Number(r.kdj_k) : null,
-      kdj_d: r.kdj_d != null ? Number(r.kdj_d) : null,
-      kdj_j: r.kdj_j != null ? Number(r.kdj_j) : null,
-      boll_upper: r.boll_upper != null ? Number(r.boll_upper) : null,
-      boll_lower: r.boll_lower != null ? Number(r.boll_lower) : null,
-      ta_adx_14: r.ta_adx_14 != null ? Number(r.ta_adx_14) : null,
-      ta_cci_14: r.ta_cci_14 != null ? Number(r.ta_cci_14) : null,
-      ta_willr_14: r.ta_willr_14 != null ? Number(r.ta_willr_14) : null,
-      ta_stoch_k: r.ta_stoch_k != null ? Number(r.ta_stoch_k) : null,
-      ta_stoch_d: r.ta_stoch_d != null ? Number(r.ta_stoch_d) : null,
-      ta_aroon_up: r.ta_aroon_up != null ? Number(r.ta_aroon_up) : null,
-      ta_aroon_down: r.ta_aroon_down != null ? Number(r.ta_aroon_down) : null,
-      ta_obv: r.ta_obv != null ? Number(r.ta_obv) : null,
     }))
 }
 
@@ -112,6 +98,82 @@ export function getDefaultRange(): { start: string; end: string } {
   return { start, end }
 }
 
+/** 解析逗号/空格分隔的周期输入 → 正整数数组 (非法/越界交给 normalizeParams 回退默认)。 */
+function parsePeriods(text: string): number[] {
+  return text
+    .split(/[^0-9]+/)
+    .map(s => Number(s))
+    .filter(n => Number.isFinite(n) && n > 0)
+}
+
+function SettingRow({ label, value, hint, onChange }: {
+  label: string
+  value: string
+  hint: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <label className="flex items-center gap-3">
+      <span className="w-16 shrink-0 text-xs text-secondary">{label}</span>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={hint}
+        className="min-w-0 flex-1 rounded border border-border bg-base px-2 py-1 text-xs font-mono text-primary outline-none focus:border-accent"
+      />
+    </label>
+  )
+}
+
+/** 指标参数设置面板: 改周期后由上层请求对应别名列 (见 lib/chartIndicators.ts 与 ADR-005)。 */
+function IndicatorSettingsPanel({ params, onChange, onClose }: {
+  params: ChartIndicatorParams
+  onChange: (p: ChartIndicatorParams) => void
+  onClose: () => void
+}) {
+  const [ma, setMa] = useState(params.ma.join(', '))
+  const [rsi, setRsi] = useState(params.rsi.join(', '))
+  const [macd, setMacd] = useState(params.macd.join(', '))
+  const [kdj, setKdj] = useState(params.kdj.join(', '))
+  const [boll, setBoll] = useState(params.boll.join(', '))
+
+  const apply = () => {
+    onChange(normalizeParams({
+      ma: parsePeriods(ma),
+      rsi: parsePeriods(rsi),
+      macd: parsePeriods(macd),
+      kdj: parsePeriods(kdj),
+      boll: parsePeriods(boll),
+    }))
+    onClose()
+  }
+  const reset = () => {
+    onChange(normalizeParams(DEFAULT_CHART_PARAMS))
+    onClose()
+  }
+
+  return (
+    <div className="space-y-3 p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-primary">指标参数</h3>
+        <button onClick={onClose} aria-label="关闭" className="text-muted hover:text-secondary cursor-pointer">✕</button>
+      </div>
+      <p className="text-[11px] text-muted leading-4">
+        改周期后自动向后端请求对应指标 (别名列), 不影响选股/回测口径。留空或非法值回退默认。
+      </p>
+      <SettingRow label="均线 MA" value={ma} hint="5, 10, 20, 60" onChange={setMa} />
+      <SettingRow label="RSI" value={rsi} hint="6, 14, 24" onChange={setRsi} />
+      <SettingRow label="MACD" value={macd} hint="12, 26, 9 (快,慢,信号)" onChange={setMacd} />
+      <SettingRow label="KDJ" value={kdj} hint="9" onChange={setKdj} />
+      <SettingRow label="BOLL" value={boll} hint="20, 2 (周期,倍数)" onChange={setBoll} />
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={reset} className="px-3 py-1 rounded text-xs bg-elevated text-muted hover:text-secondary cursor-pointer">恢复默认</button>
+        <button onClick={apply} className="px-3 py-1 rounded text-xs bg-accent/20 text-accent cursor-pointer">应用</button>
+      </div>
+    </div>
+  )
+}
+
 export function StockDailyKChart({
   symbol,
   height = 520,
@@ -136,7 +198,15 @@ export function StockDailyKChart({
   const [volumeCompare, setVolumeCompare] = useState<VolumeCompareConfig>(() =>
     normalizeVolumeCompare(storage.stockVolumeCompare.get(DEFAULT_VOLUME_COMPARE)),
   )
+  const [indicatorParams, setIndicatorParams] = useState<ChartIndicatorParams>(() =>
+    normalizeParams(storage.chartIndicatorParams.get(null)),
+  )
+  const [showSettings, setShowSettings] = useState(false)
   const dateRange = externalDateRange ?? getDefaultRange()
+
+  // 自定义指标参数 → 请求编码 (全默认时为空 → 请求/cache key 与既有逐位一致)
+  const indicatorSpecs = useMemo(() => buildSpecString(indicatorParams), [indicatorParams])
+  const columns = useMemo(() => deriveColumns(indicatorParams), [indicatorParams])
 
   // 已开启的第三方 TA 子图对应的数据列 (逗号分隔); 未开启时为空 → 请求与 cache key 不变
   const taColumns = useMemo(
@@ -149,7 +219,7 @@ export function StockDailyKChart({
 
   // 查询配置统一来自 klineDailyQueryOptions, 与 StockPanel 信息条/邻近预取共享同一 cache key (只发一次请求)
   const kline = useQuery({
-    ...klineDailyQueryOptions(symbol, dateRange, extColumns, taColumns || undefined),
+    ...klineDailyQueryOptions(symbol, dateRange, extColumns, taColumns || undefined, indicatorSpecs || undefined),
     enabled: !!symbol,
   })
 
@@ -179,6 +249,12 @@ export function StockDailyKChart({
       storage.stockVolumeCompare.set(next)
       return next
     })
+  }, [])
+
+  const updateIndicatorParams = useCallback((next: ChartIndicatorParams) => {
+    const norm = normalizeParams(next)
+    setIndicatorParams(norm)
+    storage.chartIndicatorParams.set(norm)
   }, [])
 
   const activeSubDefs = activeIndicators
@@ -252,10 +328,17 @@ export function StockDailyKChart({
               </select>
             </div>
           )}
+          <button
+            onClick={() => setShowSettings(true)}
+            title="指标参数设置"
+            className="ml-auto px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors bg-elevated text-muted hover:text-secondary"
+          >
+            参数
+          </button>
           {showMarkerToggle && showLimitMarkers && (
             <button
               onClick={() => setShowMarkers(v => !v)}
-              className={`ml-auto px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+              className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
                 showMarkers
                   ? 'text-[#FACC15] bg-[#FACC15]/10'
                   : 'bg-elevated text-muted hover:text-secondary'
@@ -290,7 +373,21 @@ export function StockDailyKChart({
           activeIndicators={activeIndicators}
           volumeCompare={volumeCompare}
           extraSubCharts={taSubCharts}
+          columns={columns}
         />
+      )}
+      {showSettings && (
+        <Modal
+          onClose={() => setShowSettings(false)}
+          ariaLabel="指标参数设置"
+          panelClassName="w-[92vw] max-w-sm bg-surface border border-border rounded-card shadow-xl"
+        >
+          <IndicatorSettingsPanel
+            params={indicatorParams}
+            onChange={updateIndicatorParams}
+            onClose={() => setShowSettings(false)}
+          />
+        </Modal>
       )}
     </div>
   )

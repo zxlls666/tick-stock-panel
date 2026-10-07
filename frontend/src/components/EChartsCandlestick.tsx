@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import { fmtPct } from '@/lib/format'
+import { BOLL_COLOR, DEFAULT_INDICATOR_COLUMNS, colVal, type IndicatorColumns } from '@/lib/chartIndicators'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 
@@ -35,6 +36,8 @@ export interface OHLC {
   ta_aroon_up?: number | null
   ta_aroon_down?: number | null
   ta_obv?: number | null
+  /** 自定义周期别名列 (如 ma_13_c) 及其它附加列, 由 toOHLC 透传 */
+  [key: string]: unknown
 }
 
 export interface ChartMarker {
@@ -78,6 +81,8 @@ export interface VolumeCompareConfig {
 interface SubChartContext {
   compact: boolean
   volumeCompare: VolumeCompareConfig
+  /** 图表读取的指标列 (默认规范列; 自定义周期时为别名列) */
+  columns: IndicatorColumns
 }
 
 /** 子图定义 */
@@ -88,8 +93,8 @@ export interface SubChartDef {
   height: number
   /** 构建 series 数组 */
   buildSeries: (data: OHLC[], context: SubChartContext) => any[]
-  /** 构建信息栏文字 (当前数据行 -> 显示内容) */
-  buildInfo: (d: OHLC | null) => { label: string; color: string; value: string }[]
+  /** 构建信息栏文字 (当前数据行 + 上下文 -> 显示内容) */
+  buildInfo: (d: OHLC | null, context: SubChartContext) => { label: string; color: string; value: string }[]
   /** Y 轴特殊配置 */
   yAxisConfig?: Record<string, any>
   /** 可选: 数据来源列 (TA 子图用于让上层按开启项拼接请求参数) */
@@ -132,6 +137,46 @@ function volumeRatioAt(data: OHLC[], index: number, days: number): number | null
 
 function fmtVolumeRatio(value: number | null, digits = 2): string {
   return value == null ? '—' : `${value.toFixed(digits)}x`
+}
+
+/** 从 OHLC 行按列名取数并构建一条折线 series (列名可为规范列或自定义别名列)。 */
+function ohlcLine(
+  name: string,
+  color: string,
+  data: OHLC[],
+  col: string,
+  opts: { dashed?: boolean; silent?: boolean } = {},
+) {
+  return {
+    name,
+    type: 'line' as const,
+    data: data.map(d => {
+      const v = colVal(d, col)
+      return v == null ? '-' : v
+    }),
+    smooth: true, symbol: 'none', animation: false,
+    ...(opts.silent ? { silent: true } : {}),
+    lineStyle: { width: 1, color, ...(opts.dashed ? { type: 'dashed' as const } : {}) },
+    itemStyle: { color },
+  }
+}
+
+/** 信息栏第二行: 逐条均线 + (可选) BOLL 上/中/下 (中轨=上下轨均值)。 */
+function maBollInfoHTML(d: OHLC, columns: IndicatorColumns, showBoll: boolean): string {
+  let html = `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;min-height:20px;flex-wrap:wrap">`
+  for (const c of columns.ma) {
+    const v = colVal(d, c.col)
+    if (v != null) html += `<span style="color:${c.color}">${c.label}:${v.toFixed(2)}</span>`
+  }
+  if (showBoll) {
+    const bu = colVal(d, columns.boll.upper)
+    const bl = colVal(d, columns.boll.lower)
+    if (bu != null && bl != null) {
+      html += `<span style="color:${BOLL_COLOR}">BOLL:${bu.toFixed(2)}/${((bu + bl) / 2).toFixed(2)}/${bl.toFixed(2)}</span>`
+    }
+  }
+  html += `</div>`
+  return html
 }
 
 export const SUB_CHARTS: SubChartDef[] = [
@@ -200,44 +245,37 @@ export const SUB_CHARTS: SubChartDef[] = [
     key: 'macd',
     label: 'MACD',
     height: 72,
-    buildSeries: (data) => [
-      {
-        name: 'DIF',
-        type: 'line',
-        data: data.map(d => d.macd_dif != null ? Number(d.macd_dif) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
-      },
-      {
-        name: 'DEA',
-        type: 'line',
-        data: data.map(d => d.macd_dea != null ? Number(d.macd_dea) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
-      },
-      {
-        name: 'MACD',
-        type: 'bar',
-        data: data.map(d => {
-          const v = d.macd_hist
-          if (v == null) return '-'
-          return {
-            value: Number(v),
-            itemStyle: { color: Number(v) >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
-          }
-        }),
-        barWidth: '40%',
-        animation: false,
-      },
-    ],
-    buildInfo: (d) => {
-      if (!d) return []
+    buildSeries: (data, context) => {
+      const { dif, dea, hist } = context.columns.macd
       return [
-        { label: 'DIF', color: '#FACC15', value: d.macd_dif != null ? d.macd_dif.toFixed(3) : '—' },
-        { label: 'DEA', color: '#8B5CF6', value: d.macd_dea != null ? d.macd_dea.toFixed(3) : '—' },
-        { label: 'MACD', color: d.macd_hist != null && d.macd_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_hist != null ? d.macd_hist.toFixed(3) : '—' },
+        ohlcLine(dif.label, dif.color, data, dif.col),
+        ohlcLine(dea.label, dea.color, data, dea.col),
+        {
+          name: hist.label,
+          type: 'bar',
+          data: data.map(d => {
+            const v = colVal(d, hist.col)
+            if (v == null) return '-'
+            return {
+              value: v,
+              itemStyle: { color: v >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
+            }
+          }),
+          barWidth: '40%',
+          animation: false,
+        },
+      ]
+    },
+    buildInfo: (d, context) => {
+      if (!d) return []
+      const { dif, dea, hist } = context.columns.macd
+      const dv = colVal(d, dif.col)
+      const ev = colVal(d, dea.col)
+      const hv = colVal(d, hist.col)
+      return [
+        { label: dif.label, color: dif.color, value: dv != null ? dv.toFixed(3) : '—' },
+        { label: dea.label, color: dea.color, value: ev != null ? ev.toFixed(3) : '—' },
+        { label: hist.label, color: hv != null && hv >= 0 ? '#C74040' : '#2D9B65', value: hv != null ? hv.toFixed(3) : '—' },
       ]
     },
   },
@@ -246,78 +284,31 @@ export const SUB_CHARTS: SubChartDef[] = [
     label: 'RSI',
     height: 72,
     yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data) => [
-      {
-        name: 'RSI6',
-        type: 'line',
-        data: data.map(d => d.rsi_6 != null ? Number(d.rsi_6) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
-      },
-      {
-        name: 'RSI14',
-        type: 'line',
-        data: data.map(d => d.rsi_14 != null ? Number(d.rsi_14) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
-      },
-      {
-        name: 'RSI24',
-        type: 'line',
-        data: data.map(d => d.rsi_24 != null ? Number(d.rsi_24) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
-      },
-    ],
-    buildInfo: (d) => {
+    buildSeries: (data, context) =>
+      context.columns.rsi.map(c => ohlcLine(c.label, c.color, data, c.col)),
+    buildInfo: (d, context) => {
       if (!d) return []
-      return [
-        { label: 'RSI6', color: '#FACC15', value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
-        { label: 'RSI14', color: '#3B82F6', value: d.rsi_14 != null ? d.rsi_14.toFixed(1) : '—' },
-        { label: 'RSI24', color: '#8B5CF6', value: d.rsi_24 != null ? d.rsi_24.toFixed(1) : '—' },
-      ]
+      return context.columns.rsi.map(c => {
+        const v = colVal(d, c.col)
+        return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
+      })
     },
   },
   {
     key: 'kdj',
     label: 'KDJ',
     height: 72,
-    buildSeries: (data) => [
-      {
-        name: 'K',
-        type: 'line',
-        data: data.map(d => d.kdj_k != null ? Number(d.kdj_k) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
-      },
-      {
-        name: 'D',
-        type: 'line',
-        data: data.map(d => d.kdj_d != null ? Number(d.kdj_d) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
-      },
-      {
-        name: 'J',
-        type: 'line',
-        data: data.map(d => d.kdj_j != null ? Number(d.kdj_j) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
-      },
-    ],
-    buildInfo: (d) => {
+    buildSeries: (data, context) => {
+      const { k, d: dLine, j } = context.columns.kdj
+      return [k, dLine, j].map(c => ohlcLine(c.label, c.color, data, c.col))
+    },
+    buildInfo: (d, context) => {
       if (!d) return []
-      return [
-        { label: 'K', color: '#FACC15', value: d.kdj_k != null ? d.kdj_k.toFixed(1) : '—' },
-        { label: 'D', color: '#3B82F6', value: d.kdj_d != null ? d.kdj_d.toFixed(1) : '—' },
-        { label: 'J', color: '#8B5CF6', value: d.kdj_j != null ? d.kdj_j.toFixed(1) : '—' },
-      ]
+      const { k, d: dLine, j } = context.columns.kdj
+      return [k, dLine, j].map(c => {
+        const v = colVal(d, c.col)
+        return { label: c.label, color: c.color, value: v != null ? v.toFixed(1) : '—' }
+      })
     },
   },
 ]
@@ -447,6 +438,8 @@ interface Props {
   volumeCompare?: VolumeCompareConfig
   /** 额外子图 (如第三方 TA 指标); 会与内置 SUB_CHARTS 合并参与布局与信息栏 */
   extraSubCharts?: SubChartDef[]
+  /** 图表读取的指标列 (默认规范列; 自定义周期时由上层传入别名列) */
+  columns?: IndicatorColumns
 }
 
 // 序列颜色 (双主题通用); 画布轴/网格/文字等主题相关色走 CT() 动态取
@@ -480,16 +473,18 @@ function buildSubInfoGraphics(
   subStartTop: number,
   volumeCompare: VolumeCompareConfig,
   subCharts: SubChartDef[],
+  columns: IndicatorColumns,
 ): any[] {
   const d = infoIdx >= 0 && infoIdx < data.length ? data[infoIdx] : null
   const graphics: any[] = []
+  const context: SubChartContext = { compact: false, volumeCompare, columns }
   let curTop = subStartTop
 
   activeIndicators.forEach((key) => {
     const def = subCharts.find(s => s.key === key)
     if (!def) return
 
-    const items = def.buildInfo(d)
+    const items = def.buildInfo(d, context)
     if (def.key === 'vol' && d) {
       const calcVolMa = (n: number) => {
         if (infoIdx < n - 1) return null
@@ -583,10 +578,11 @@ function buildOption(
   linkedPrice: number | null | undefined,
   volumeCompare: VolumeCompareConfig,
   subCharts: SubChartDef[],
+  columns: IndicatorColumns,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
-  const hasMA = showMA && data.some(d => d.ma5 != null || d.ma10 != null || d.ma20 != null || d.ma60 != null)
+  const hasMA = showMA && columns.ma.some(c => data.some(d => colVal(d, c.col) != null))
 
   const markPointData: any[] = []
   if (markers && markers.length > 0) {
@@ -790,31 +786,17 @@ function buildOption(
   })
 
   if (hasMA) {
-    const maLine = (key: keyof OHLC, color: string, name: string) => ({
-      name, type: 'line',
-      data: data.map(d => (d[key] != null ? Number(d[key]) : '-')),
-      smooth: true, symbol: 'none', animation: false,
-      silent: true,
-      lineStyle: { width: 1, color }, itemStyle: { color },
-    })
-    series.push(maLine('ma5', THEME.ma5, 'MA5'))
-    series.push(maLine('ma10', THEME.ma10, 'MA10'))
-    series.push(maLine('ma20', THEME.ma20, 'MA20'))
-    series.push(maLine('ma60', THEME.ma60, 'MA60'))
+    for (const c of columns.ma) {
+      series.push(ohlcLine(c.label, c.color, data, c.col, { silent: true }))
+    }
   }
 
   // BOLL 布林带 — 需在 activeIndicators 中激活
-  const showBOLL = activeIndicators.includes('boll') && data.some(d => d.boll_upper != null || d.boll_lower != null)
+  const showBOLL = activeIndicators.includes('boll')
+    && data.some(d => colVal(d, columns.boll.upper) != null || colVal(d, columns.boll.lower) != null)
   if (showBOLL) {
-    const bollLine = (key: keyof OHLC, color: string, name: string) => ({
-      name, type: 'line',
-      data: data.map(d => (d[key] != null ? Number(d[key]) : '-')),
-      smooth: true, symbol: 'none', animation: false,
-      silent: true,
-      lineStyle: { width: 1, color, type: 'dashed' as const }, itemStyle: { color },
-    })
-    series.push(bollLine('boll_upper', '#E879F9', 'BOLL上'))
-    series.push(bollLine('boll_lower', '#E879F9', 'BOLL下'))
+    series.push(ohlcLine('BOLL上', BOLL_COLOR, data, columns.boll.upper, { dashed: true, silent: true }))
+    series.push(ohlcLine('BOLL下', BOLL_COLOR, data, columns.boll.lower, { dashed: true, silent: true }))
   }
 
   // ===== 子图区域 =====
@@ -858,7 +840,7 @@ function buildOption(
 
     xAxisIndices.push(xAxisIdx)
 
-    const subSeries = def.buildSeries(data, { compact, volumeCompare })
+    const subSeries = def.buildSeries(data, { compact, volumeCompare, columns })
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })
@@ -868,7 +850,7 @@ function buildOption(
 
   // 子图信息栏 graphic
   const subStartTop = topPad + candleAvail + candleBottomPad
-  const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare, subCharts)
+  const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare, subCharts, columns)
 
   return {
     animation: false,
@@ -927,6 +909,7 @@ export function EChartsCandlestick({
   activeIndicators = [],
   volumeCompare = { enabled: true, days: 1 },
   extraSubCharts,
+  columns = DEFAULT_INDICATOR_COLUMNS,
 }: Props) {
   const hoverSurfaceRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -960,6 +943,8 @@ export function EChartsCandlestick({
   volumeCompareRef.current = volumeCompare
   const subChartsRef = useRef(subCharts)
   subChartsRef.current = subCharts
+  const columnsRef = useRef(columns)
+  columnsRef.current = columns
   const chartHeightRef = useRef(300)
   const subTotalHRef = useRef(0)
   const getInfoBarHTMLRef = useRef<() => string>(() => '')
@@ -981,6 +966,7 @@ export function EChartsCandlestick({
       subStartTop,
       volumeCompareRef.current,
       subChartsRef.current,
+      columnsRef.current,
     )
     if (infoGraphics.length > 0) {
       chart.setOption({ graphic: infoGraphics }, { lazyUpdate: true })
@@ -1073,19 +1059,11 @@ export function EChartsCandlestick({
 
     // 第二行: MA + BOLL
     if (showMA) {
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;min-height:20px;flex-wrap:wrap">`
-      if (d.ma5 != null) html += `<span style="color:${THEME.ma5}">MA5:${Number(d.ma5).toFixed(2)}</span>`
-      if (d.ma10 != null) html += `<span style="color:${THEME.ma10}">MA10:${Number(d.ma10).toFixed(2)}</span>`
-      if (d.ma20 != null) html += `<span style="color:${THEME.ma20}">MA20:${Number(d.ma20).toFixed(2)}</span>`
-      if (d.ma60 != null) html += `<span style="color:${THEME.ma60}">MA60:${Number(d.ma60).toFixed(2)}</span>`
-      if (d.boll_upper != null && activeIndicators.includes('boll')) {
-        html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
-      }
-      html += `</div>`
+      html += maBollInfoHTML(d, columns, activeIndicators.includes('boll'))
     }
 
     return html
-  }, [data, stockInfo, showMA, activeIndicators])
+  }, [data, stockInfo, showMA, activeIndicators, columns])
   getInfoBarHTMLRef.current = getInfoBarHTML
 
   // data/symbol 变化时重置 infoIdx:
@@ -1298,6 +1276,7 @@ export function EChartsCandlestick({
       linkedPrice,
       volumeCompare,
       subCharts,
+      columns,
     )
 
     chart.setOption(option, true)
@@ -1315,7 +1294,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, subCharts])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, subCharts, columns])
 
   // 渲染信息栏容器 (内容由 JS 直接写入)
   const initialHTML = useMemo(() => {
@@ -1347,19 +1326,10 @@ export function EChartsCandlestick({
     }
     html += `</div>`
     if (showMA) {
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;min-height:20px;flex-wrap:wrap">`
-      if (d.ma5 != null) html += `<span style="color:${THEME.ma5}">MA5:${Number(d.ma5).toFixed(2)}</span>`
-      if (d.ma10 != null) html += `<span style="color:${THEME.ma10}">MA10:${Number(d.ma10).toFixed(2)}</span>`
-      if (d.ma20 != null) html += `<span style="color:${THEME.ma20}">MA20:${Number(d.ma20).toFixed(2)}</span>`
-      if (d.ma60 != null) html += `<span style="color:${THEME.ma60}">MA60:${Number(d.ma60).toFixed(2)}</span>`
-      if (d.boll_upper != null && activeIndicators.includes('boll')) {
-        html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
-      }
-      html += `</div>`
+      html += maBollInfoHTML(d, columns, activeIndicators.includes('boll'))
     }
     return html
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [columns, showMA, activeIndicators, data, stockInfo])
 
   return (
     <div ref={hoverSurfaceRef} className="w-full">

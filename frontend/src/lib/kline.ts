@@ -18,10 +18,11 @@ export function klineDailyQueryOptions(
   dateRange: { start: string; end: string },
   extColumns?: string,
   taColumns?: string,
+  indicatorSpecs?: string,
 ) {
   return {
-    queryKey: QK.kline(symbol, dateRange.start, dateRange.end, extColumns, taColumns),
-    queryFn: () => api.klineDaily(symbol, undefined, dateRange, extColumns, taColumns),
+    queryKey: QK.kline(symbol, dateRange.start, dateRange.end, extColumns, taColumns, indicatorSpecs),
+    queryFn: () => api.klineDaily(symbol, undefined, dateRange, extColumns, taColumns, indicatorSpecs),
     // 工厂无 TData 泛型, 参数用 any 以便 useQuery/prefetchQuery 共用
     placeholderData: (prev: any, prevQuery: any) => {
       const prevKey = prevQuery?.queryKey as readonly unknown[] | undefined
