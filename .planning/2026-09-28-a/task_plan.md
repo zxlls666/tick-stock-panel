@@ -84,8 +84,23 @@ Phase 10 in progress: paper-only OOS observer CLI; Phase 5 remains blocked by mi
 - [x] strict PIT 当前股本回退非零、数据 generation 漂移、输入覆盖不足或 observation 已存在时 fail-closed
 - [x] 完成 RED/GREEN、历史边界 dry-run、Ruff 和回归验证
 - [x] 完整日行情、同日 instruments、ST/退市覆盖更新后生成首个成功 observation
-- [ ] 9 月 30 日收盘后生成首个月末信号，并在下一交易日开盘影子执行
-- **Status:** implemented; first cash-only observation completed, first rebalance pending month-end
+- [x] 9 月 30 日收盘后生成首个月末信号
+- [ ] 10 月 8 日下一交易日开盘影子执行并复核成交/阻塞/容量
+- **Status:** first month-end signal completed; first shadow execution pending 2026-10-08
+
+### Phase 11: External scheduler activation
+
+- [ ] 等 10 月 8 日首次影子成交通过人工复核；在此之前不安装 cron/launchd
+- [ ] 新增唯一的外部调度入口脚本，只编排现有命令，不复制 observer、ST 或退市业务逻辑
+- [ ] 同一 `as-of` 严格串行执行：生产日线同步 → instruments 同步 → ST 增量 → 退市覆盖证明 → preflight → observer
+- [ ] preflight 验证日线完整性、稳定 generation、instruments `as_of`、ST/退市 coverage、PIT 股本和交易日历 horizon
+- [ ] 任一步失败立即非零退出；observer 不运行，且不得留下半成品 observation
+- [ ] observer 已存在同日 observation 时视为安全幂等结果，不覆盖旧产物、不重复记账
+- [ ] 将 stdout/stderr、退出码、`as-of`、generation 和产物路径写入独立日志；设置日志保留策略
+- [ ] 外部调度使用固定工作目录、绝对路径和与人工运行相同的 Python/uv 环境
+- [ ] 先手动执行调度入口一次，再连续观察至少 2 个交易日的成功、失败和重复运行行为
+- [ ] 仅在上述验收全部通过后安装 launchd/cron，并记录任务标签、运行时间、时区、状态检查和卸载/回滚命令
+- **Status:** pending; blocked until first month-end signal and first shadow execution are verified
 
 ## Decisions Made
 

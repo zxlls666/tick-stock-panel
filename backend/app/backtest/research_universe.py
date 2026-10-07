@@ -347,9 +347,10 @@ def build_research_universe(
     st_history: pl.DataFrame,
     *,
     pit_valid: np.ndarray,
+    exclusion_history: pl.DataFrame | None = None,
     seasoning_months: int = 6,
 ) -> ResearchUniverse:
-    """Apply listing, delisting, PIT ST, seasoning, and PIT-data gates in order."""
+    """Apply listing, delisting, PIT ST/exclusion, seasoning, and PIT-data gates."""
     shape = (len(trading_dates), len(symbols))
     pit = np.asarray(pit_valid, dtype=bool)
     if pit.shape != shape:
@@ -376,7 +377,9 @@ def build_research_universe(
     st_known, st_flag = _st_matrices(trading_dates, symbols, st_history)
     known = not_delisted & st_known
     not_st = known & ~st_flag
-    seasoned = not_st & (date_values[:, None] >= seasoned_values[None, :])
+    excluded = _event_mask(trading_dates, symbols, exclusion_history)
+    not_excluded = not_st & ~excluded
+    seasoned = not_excluded & (date_values[:, None] >= seasoned_values[None, :])
     pit_gate = seasoned & pit
     eligible = pit_gate
 
@@ -398,6 +401,7 @@ def build_research_universe(
         "st_known": known.sum(axis=1),
         "st_unknown": (not_delisted & ~st_known).sum(axis=1),
         "not_st": not_st.sum(axis=1),
+        "not_excluded": not_excluded.sum(axis=1),
         "seasoned": seasoned.sum(axis=1),
         "pit_valid": pit_gate.sum(axis=1),
         "eligible": eligible.sum(axis=1),
@@ -409,6 +413,35 @@ def build_research_universe(
         price_limit_pct=price_limit_pct,
         funnel=funnel,
     )
+
+
+def _event_mask(
+    trading_dates: tuple[date, ...],
+    symbols: tuple[str, ...],
+    history: pl.DataFrame | None,
+) -> np.ndarray:
+    result = np.zeros((len(trading_dates), len(symbols)), dtype=bool)
+    if history is None or history.is_empty():
+        return result
+    required = {"symbol", "effective_date"}
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"exclusion_history missing columns: {sorted(missing)}")
+    if history.select("symbol", "effective_date").is_duplicated().any():
+        raise ValueError("exclusion_history requires unique symbol/effective_date rows")
+    first_dates = history.group_by("symbol").agg(
+        pl.col("effective_date").min().alias("effective_date")
+    )
+    events = {
+        str(row["symbol"]): row["effective_date"]
+        for row in first_dates.iter_rows(named=True)
+    }
+    dates = np.asarray([value.toordinal() for value in trading_dates], dtype=np.int64)
+    for asset_id, symbol in enumerate(symbols):
+        effective = events.get(symbol)
+        if effective is not None:
+            result[:, asset_id] = dates >= effective.toordinal()
+    return result
 
 
 def _instrument_rows(instruments: pl.DataFrame) -> dict[str, tuple[date, date | None]]:

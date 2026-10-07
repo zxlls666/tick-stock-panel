@@ -245,6 +245,34 @@ def test_universe_filters_in_fixed_order_and_fails_closed_on_unknown_st():
     ]
 
 
+def test_pit_exclusion_history_removes_delisting_period_without_rewriting_st() -> None:
+    result = build_research_universe(
+        (date(2026, 9, 29), date(2026, 9, 30)),
+        ("301139.SZ",),
+        pl.DataFrame({
+            "symbol": ["301139.SZ"],
+            "list_date": [date(2022, 7, 8)],
+            "delist_date": [None],
+        }),
+        pl.DataFrame({
+            "symbol": ["301139.SZ", "301139.SZ"],
+            "effective_date": [date(2022, 7, 8), date(2026, 9, 30)],
+            "st_flag": [True, False],
+        }),
+        exclusion_history=pl.DataFrame({
+            "symbol": ["301139.SZ"],
+            "effective_date": [date(2026, 9, 30)],
+            "reason": ["delisting_period"],
+        }),
+        pit_valid=np.ones((2, 1), dtype=bool),
+    )
+
+    assert result.st_known.tolist() == [[True], [True]]
+    assert result.st_flag.tolist() == [[True], [False]]
+    assert result.eligible.tolist() == [[False], [False]]
+    assert result.funnel["not_excluded"].to_list() == [0, 0]
+
+
 def test_unknown_st_state_is_excluded_and_counted():
     result = build_research_universe(
         (date(2024, 7, 1),),

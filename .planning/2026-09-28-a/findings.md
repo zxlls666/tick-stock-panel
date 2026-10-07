@@ -216,6 +216,14 @@
 - 策略尚未形成首个目标时，现金相对下跌基准的收益不应报告为策略 alpha。正式口径从首个 `target_exposure > 0` 的日期才开始计算主动收益、IR 和月度策略指标。
 - `as_of=2026-09-29` 正式包是系统闭环证明而非策略业绩：四账户全现金、0 信号、0 target，excess/IR 为 `not started`。首个可交易信号仍需等待 9 月 30 日收盘。
 
+## 首个月末信号取证（2026-09-30）
+
+- 生产 instruments 只能按 `date.today()` 写入，不能历史回放；9 月 30 日快照采用研究隔离重建，不修改生产文件、不把 10 月 1 日 `as_of` 手工倒填为 9 月 30 日。
+- BaoStock 9 月 30 日 `query_all_stock` 覆盖全部 5,224 只当前上市 SH/SZ 股票，包括 11 个停牌市场对象；当前生产快照补充 BJ 元数据，但 BJ 继续因 PIT ST 缺失 fail-closed。
+- BaoStock 的 `isST` 不能独自表达退市整理期：`301139.SZ` 在 9 月 29 日名称为 `*ST元道`、停牌且 `isST=1`；9 月 30 日名称变为 `元道退`、恢复交易且 `isST=0`。因此退市整理期需要独立 PIT exclusion 事件，不能混入或改写 ST 历史。
+- 直接按当前名称过滤完整历史会引入未来函数；正确口径是从首次可证明的名称事件日起退出 universe。首个事件已落盘到 `20260930T-oos-exclusion-history-v1/exclusion_history.parquet` 并进入 observer manifest。
+- 正式 9 月 30 日信号：raw 与 size-neutral 各 20 只，18 只重合，Jaccard 0.8182；两版各 5% 等权，下一交易日为 2026-10-08。当前只形成 pending target，未发生任何影子成交。
+
 ## Resources
 
 - 本地报告：`/Users/serge/Desktop/A股交易策略研究报告.html`

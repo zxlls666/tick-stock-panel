@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -159,6 +162,20 @@ def test_oos_stats_exclude_cash_only_warmup_days() -> None:
     assert stats["trading_days"] == 2
     assert stats["total_return"] == pytest.approx(0.1)
     assert stats["trading_cost"] == pytest.approx(1.0)
+
+
+def test_observer_cli_requires_pit_exclusion_history() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, "backend/scripts/run_a_share_oos_observer.py", "--help"],
+        cwd=repo_root,
+        env={**os.environ, "PYTHONPATH": str(repo_root / "backend")},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "--exclusion-history EXCLUSION_HISTORY" in completed.stdout
 
 
 def test_unstarted_cash_account_has_no_active_performance_window() -> None:

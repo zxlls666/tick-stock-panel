@@ -422,6 +422,7 @@ def main() -> int:
     if not {"symbol", "period_end", "float_shares"} <= set(shares.columns):
         raise RuntimeError("share history is missing required PIT columns")
     st_history = pl.read_parquet(args.st_history)
+    exclusion_history = pl.read_parquet(args.exclusion_history)
     require_source_coverage(
         "ST history",
         manifest_covered_through(args.st_manifest),
@@ -454,6 +455,7 @@ def main() -> int:
         market.symbols,
         instruments,
         st_history,
+        exclusion_history=exclusion_history,
         pit_valid=observed & build_pit_float_share_mask(dates, market.symbols, shares),
     )
     market = with_research_price_limits(market, universe)
@@ -625,6 +627,7 @@ def _write_manifest(
         args.share_history,
         args.st_history,
         args.st_manifest,
+        args.exclusion_history,
         args.trading_calendar,
     )
     manifest = build_research_run_manifest(
@@ -759,6 +762,7 @@ def _parse_args() -> argparse.Namespace:
             "st_history.parquet"
         ),
     )
+    parser.add_argument("--exclusion-history", type=Path, required=True)
     parser.add_argument(
         "--st-manifest", type=Path,
         default=Path(

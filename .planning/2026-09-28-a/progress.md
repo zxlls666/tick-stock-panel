@@ -200,6 +200,17 @@
 - 首次生成包又暴露“尚无信号的现金账户被报告为相对基准超额”；原包已归档到 `data/research/a_share_oos/_superseded/as_of=2026-09-29-prestart-active-metrics-v1/`，正式包在首个目标生效前将 excess/IR 设为 null、月度指标留空。
 - 正式首包：`data/research/a_share_oos/as_of=2026-09-29/`。四账户、2 个 OOS 交易日、全程现金、0 信号/0 target、strict PIT fallback=0；末日 eligible=4,969，ST unknown=348（北京市场 fail-closed）。9 月 29 日不是月末，首个信号应在 9 月 30 日收盘形成并于 10 月 8 日开盘影子执行。
 
+### Session: First month-end OOS signal (2026-09-30)
+
+- 生产 9 月 30 日日线/enriched 各 5,561 行，generation `089d618543344735bbdc773fdab75dc6`；当前生产 instruments 已滚到 10 月 1 日，因此未修改或倒填生产快照。
+- 生成研究隔离 instruments：`data/research/a_share_universe/20260930T-oos-instruments-v1/`。成员资格由 `listing_date <= 2026-09-30` 与 BaoStock `query_all_stock(day=2026-09-30)` 证明；当日股本使用截至 9 月 30 日可得的 PIT shares，动态涨跌停价清空。
+- ST v3：`data/research/a_share_universe/20260930T-oos-st-history-v3/`；5,436 只全部 loaded、0 error，5,224 只当前上市 SH/SZ raw 均覆盖至 9 月 30 日，新增 4 个状态变化。
+- 退市覆盖 v2：`data/research/a_share_universe/20260930T-oos-delisted-coverage-v2/`；212 只集合及关键字段零漂移，继续复用 adjusted-v2 bars。
+- 首次信号运行发现 `301139.SZ 元道退`：BaoStock 在进入退市整理期时把 `isST` 从 1 清为 0，仅依靠 ST/正式退市日会错误放行。该包已归档到 `_superseded/as_of=2026-09-30-missing-delisting-period-v1/`。
+- 新增显式 PIT exclusion history 支持与回归测试；事件包 `20260930T-oos-exclusion-history-v1/` 证明 `301139.SZ` 名称从 9 月 29 日 `*ST元道` 变为 9 月 30 日 `元道退`，从 9 月 30 日起退出 universe，不改写历史 ST 状态。
+- 正式 observation：`data/research/a_share_oos/as_of=2026-09-30/`。raw/size-neutral 各 20 只、权重各 100%，18 只重合，Jaccard 0.8182，执行日固定为 2026-10-08；当前四账户仍为现金，等待执行日行情。
+- 审计：信号中无 ST/*ST/退名称，`301139.SZ` 为 0 行，strict PIT fallback=0，输入 9 个/输出 7 个 SHA 全通过；相关回归 58 passed、Ruff 和 `git diff --check` 通过。
+
 ### Open Gates
 
 1. 退市独立复权因子仍缺；未统一复权前不得把退市日 K 接入正式收益结论。
