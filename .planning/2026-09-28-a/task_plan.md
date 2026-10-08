@@ -85,8 +85,10 @@ Phase 10 in progress: paper-only OOS observer CLI; Phase 5 remains blocked by mi
 - [x] 完成 RED/GREEN、历史边界 dry-run、Ruff 和回归验证
 - [x] 完整日行情、同日 instruments、ST/退市覆盖更新后生成首个成功 observation
 - [x] 9 月 30 日收盘后生成首个月末信号
-- [ ] 10 月 8 日下一交易日开盘影子执行并复核成交/阻塞/容量
-- **Status:** first month-end signal completed; first shadow execution pending 2026-10-08
+- [x] 10 月 8 日下一交易日开盘影子执行并复核成交/阻塞/容量
+  - 2026-10-08 执行：生产 10/8 日线/enriched 5,458 行(generation `55b33ebaeb4d46c7b544ff00712b1db6`)、instruments `as_of=2026-10-08`、ST v4 覆盖至 10/8、退市覆盖审计至 10/8；preflight 9/9 通过；observer 产出 `data/research/a_share_oos/as_of=2026-10-08/`。
+  - 影子成交复核：四账户各建 17 个仓位(9/30 目标 20 只),`blocked_buy_count=1`;100 万账户成本 0.059%、1000 万账户成本 0.125%(含冲击),1000 万账户容量未成交 189.5 万、`max_requested_adv_participation` 3.32% 超 1% 上限被截；无阻塞卖出、无退市/停牌持仓。
+- **Status:** first month-end signal completed; first shadow execution done 2026-10-08 (pending human review)
 
 ### Phase 11: External scheduler activation
 
@@ -98,9 +100,10 @@ Phase 10 in progress: paper-only OOS observer CLI; Phase 5 remains blocked by mi
 - [ ] observer 已存在同日 observation 时视为安全幂等结果，不覆盖旧产物、不重复记账
 - [ ] 将 stdout/stderr、退出码、`as-of`、generation 和产物路径写入独立日志；设置日志保留策略
 - [ ] 外部调度使用固定工作目录、绝对路径和与人工运行相同的 Python/uv 环境
-- [ ] 先手动执行调度入口一次，再连续观察至少 2 个交易日的成功、失败和重复运行行为
+- [x] 先手动执行调度入口一次（2026-10-08：`run_research_scheduler.py --as-of 2026-10-08`，preflight 9/9、observer 产出 observation）
+- [ ] 再连续观察至少 2 个交易日的成功、失败和重复运行行为
 - [ ] 仅在上述验收全部通过后安装 launchd/cron，并记录任务标签、运行时间、时区、状态检查和卸载/回滚命令
-- **Status:** pending; blocked until first month-end signal and first shadow execution are verified
+- **Status:** manual scheduler entry run once (2026-10-08); awaiting human review of first shadow execution before连续观察与安装
 
 ## Decisions Made
 
