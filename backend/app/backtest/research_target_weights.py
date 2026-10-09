@@ -22,6 +22,8 @@ class ResearchPortfolioResult:
     yearly_returns: pl.DataFrame
     stats: dict[str, object]
     execution: dict[str, int | float]
+    # 逐名执行轨迹: 每个"有意图"的标的每天一行 (含被静默跳过的), reason 见 _trade_reason
+    trades: pl.DataFrame
 
 
 def simulate_target_weights(
@@ -69,6 +71,8 @@ def simulate_target_weights(
     execution = {
         "blocked_buy_count": 0,
         "blocked_sell_count": 0,
+        "skipped_buy_count": 0,
+        "skipped_sell_count": 0,
         "delisted_position_count": 0,
         "trading_cost": 0.0,
     }
@@ -79,6 +83,7 @@ def simulate_target_weights(
             "impact_cost": 0.0,
         })
     rows: list[dict[str, object]] = []
+    trade_rows: list[dict[str, object]] = []
     previous_equity = float(config.initial_capital)
 
     for time_id, label in enumerate(market.timestamp_labels):
@@ -231,6 +236,41 @@ def simulate_target_weights(
             adv,
             max_adv_participation,
         )
+        # 逐名执行轨迹: buy 意图按 effective_target 判定 (即使无法形成请求也留痕),
+        # 使"未成交且未计入 blocked"的静默跳过可被复核; 已在目标仓位的无请求不留痕。
+        for asset_id in np.flatnonzero((effective_target > 0) | (delta < 0)):
+            is_buy = bool(effective_target[asset_id] > 0)
+            desired_shares = float(np.nan_to_num(desired[asset_id], nan=0.0))
+            requested = float(np.nan_to_num(
+                delta[asset_id] if is_buy else -delta[asset_id], nan=0.0
+            ))
+            filled = float(np.nan_to_num(
+                requested_buy[asset_id] if is_buy else sell_quantity[asset_id], nan=0.0
+            ))
+            open_ok = bool(valid_open[asset_id])
+            # 已达到目标仓位 (无请求且无数据问题) 不算一次执行
+            if is_buy and requested <= 0 and open_ok and desired_shares > 0:
+                continue
+            reason = _trade_reason(
+                open_ok=open_ok,
+                desired=desired_shares if is_buy else requested,
+                tradable=bool(tradable[asset_id]),
+                queue_blocked=bool(queue_block_buy[asset_id] if is_buy else queue_block_sell[asset_id]),
+                requested=requested,
+                filled=filled,
+            )
+            if filled <= 0:
+                execution["skipped_buy_count" if is_buy else "skipped_sell_count"] += 1
+            trade_rows.append({
+                "date": label[:10],
+                "symbol": market.symbols[asset_id],
+                "side": "buy" if is_buy else "sell",
+                "target_weight": float(effective_target[asset_id]),
+                "requested_shares": requested,
+                "filled_shares": filled,
+                "reason": reason,
+            })
+
         row = {
             "date": label[:10],
             "equity": equity,
@@ -274,12 +314,54 @@ def simulate_target_weights(
     daily = _with_drawdown(pl.DataFrame(rows))
     yearly = _yearly_returns(daily)
     stats = _portfolio_stats(daily, total_cost, config, shares, last_price)
+    trades = pl.DataFrame(trade_rows, schema=_TRADES_SCHEMA) if trade_rows else _empty_trades()
     return ResearchPortfolioResult(
         daily=daily,
         yearly_returns=yearly,
         stats=stats,
         execution=execution,
+        trades=trades,
     )
+
+
+_TRADES_SCHEMA = {
+    "date": pl.String,
+    "symbol": pl.String,
+    "side": pl.String,
+    "target_weight": pl.Float64,
+    "requested_shares": pl.Float64,
+    "filled_shares": pl.Float64,
+    "reason": pl.String,
+}
+
+
+def _empty_trades() -> pl.DataFrame:
+    return pl.DataFrame(schema=_TRADES_SCHEMA)
+
+
+def _trade_reason(
+    *,
+    open_ok: bool,
+    desired: float,
+    tradable: bool,
+    queue_blocked: bool,
+    requested: float,
+    filled: float,
+) -> str:
+    """成交/跳过原因 (从数据缺失到撮合约束, 最后才是成交)。"""
+    if not open_ok:
+        return "invalid_open"
+    if desired <= 0:
+        return "zero_desired"
+    if not tradable:
+        return "untradable"
+    if queue_blocked:
+        return "queue_block"
+    if filled <= 0:
+        return "zero_fill"
+    if filled + 1e-9 < requested:
+        return "partial"
+    return "filled"
 
 
 def _validate_inputs(

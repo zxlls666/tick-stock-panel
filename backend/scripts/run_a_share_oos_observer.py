@@ -497,6 +497,7 @@ def main() -> int:
         signals,
     )
     account_frames: list[pl.DataFrame] = []
+    trade_frames: list[pl.DataFrame] = []
     monthly_frames: list[pl.DataFrame] = []
     metrics: list[dict[str, object]] = []
     for scenario in account_scenarios():
@@ -550,10 +551,23 @@ def main() -> int:
             **active_stats,
         })
         account_frames.append(observed)
+        trade_frames.append(result.trades.with_columns(
+            pl.lit(scenario.name).alias("account"),
+            pl.lit(scenario.strategy).alias("strategy"),
+        ))
         if not started.is_empty():
             monthly_frames.append(monthly_account_metrics(started, benchmark, scenario.name))
 
     accounts = pl.concat(account_frames, how="diagonal_relaxed").sort("date", "account")
+    trades = (
+        pl.concat(trade_frames, how="diagonal_relaxed").sort("date", "account", "side", "symbol")
+        if trade_frames else pl.DataFrame(schema={
+            "date": pl.String, "symbol": pl.String, "side": pl.String,
+            "target_weight": pl.Float64, "requested_shares": pl.Float64,
+            "filled_shares": pl.Float64, "reason": pl.String,
+            "account": pl.String, "strategy": pl.String,
+        })
+    )
     summary = pl.DataFrame(metrics).sort("account")
     monthly = (
         pl.concat(monthly_frames, how="vertical_relaxed").sort("month", "account")
@@ -569,6 +583,7 @@ def main() -> int:
     signals.write_parquet(output / "signals.parquet")
     targets.write_parquet(output / "target_weights.parquet")
     accounts.write_parquet(output / "daily_accounts.parquet")
+    trades.write_parquet(output / "execution_trades.parquet")
     summary.write_parquet(output / "summary.parquet")
     monthly.write_parquet(output / "monthly_metrics.parquet")
     overlap.write_parquet(output / "signal_overlap.parquet")

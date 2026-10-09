@@ -407,3 +407,39 @@ def test_invalid_target_weights_fail_closed(target, message):
 
     with pytest.raises(ValueError, match=message):
         simulate_target_weights(market, target, config=_config())
+
+
+def test_trades_record_one_price_block_reason():
+    market = _market([[10.0]], limit_up={(0, 0)})
+    target = np.array([[1.0]])
+
+    result = simulate_target_weights(market, target, config=_config())
+
+    row = result.trades.filter(pl.col("date") == "2024-01-02").to_dicts()[0]
+    assert row["side"] == "buy"
+    assert row["reason"] == "queue_block"
+    assert row["filled_shares"] == 0.0
+    assert result.daily["blocked_buy_count"][0] == 1
+    assert result.execution["skipped_buy_count"] == 1
+
+
+def test_trades_surface_silent_invalid_open_skip():
+    """无效开盘价的标的既不成交、也不计入 blocked_buy_count —— 轨迹必须留痕。"""
+    nan = float("nan")
+    market = _market([[10.0, nan], [10.0, 10.0]])
+    target = np.array([[0.5, 0.5], [0.5, 0.5]])
+
+    result = simulate_target_weights(market, target, config=_config())
+
+    broken = result.trades.filter(
+        (pl.col("date") == "2024-01-02") & (pl.col("symbol") == "000002.SZ")
+    ).to_dicts()[0]
+    assert broken["reason"] == "invalid_open"
+    assert broken["filled_shares"] == 0.0
+    # 已知盲点: 未成交但 blocked_buy_count 为 0 (旧口径无法发现), 由轨迹与 skip 计数补上
+    assert result.daily["blocked_buy_count"][0] == 0
+    assert result.execution["skipped_buy_count"] == 1
+    # 次日恢复可交易后正常成交
+    assert result.trades.filter(
+        (pl.col("date") == "2024-01-03") & (pl.col("symbol") == "000002.SZ")
+    )["reason"][0] == "filled"
