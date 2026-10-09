@@ -162,15 +162,56 @@ def require_source_coverage(name: str, covered_through: date, as_of: date) -> No
         raise RuntimeError(f"{name} only covers through {covered_through}, before as-of {as_of}")
 
 
-def require_market_completeness(close: np.ndarray, *, minimum_ratio: float = 0.95) -> None:
+def market_coverage_evidence(close: np.ndarray) -> dict:
+    """最新一行覆盖 vs 前 20 日**最小**覆盖 (最保守基线) 的证据快照。"""
+    values = np.asarray(close, dtype=np.float64)
+    if values.ndim != 2 or values.shape[0] < 21:
+        return {}
+    baseline = int(np.isfinite(values[-21:-1]).sum(axis=1).min())
+    latest = int(np.isfinite(values[-1]).sum())
+    return {
+        "latest": latest,
+        "baseline_min": baseline,
+        "ratio": round(latest / baseline, 4) if baseline else None,
+    }
+
+
+def require_market_completeness(close: np.ndarray, *, minimum_ratio: float = 0.99) -> None:
     values = np.asarray(close, dtype=np.float64)
     if values.ndim != 2 or values.shape[0] < 21:
         raise RuntimeError("market completeness requires at least 21 daily rows")
-    baseline = np.median(np.isfinite(values[-21:-1]).sum(axis=1))
+    baseline = int(np.isfinite(values[-21:-1]).sum(axis=1).min())
     latest = int(np.isfinite(values[-1]).sum())
     if baseline <= 0 or latest < baseline * minimum_ratio:
         raise RuntimeError(
-            f"latest market coverage is incomplete: latest={latest}, baseline={baseline:.0f}"
+            f"latest market coverage is incomplete: latest={latest}, baseline_min={baseline}, "
+            f"required {minimum_ratio}"
+        )
+
+
+def require_no_unpublished_bars(
+    symbols: tuple[str, ...], close: np.ndarray, *, tolerance: int | None = None
+) -> None:
+    """近期有成交、最新交易日整只缺失的标的必须 fail-closed。
+
+    停牌/退市标的长期无 bar 属合法缺席; 而"最近还在成交、as-of 却整只没有"只可能是数据
+    未到 —— 这类缺口会让观察包建在不完整数据上却报成功 (2026-10-08 事故: 2 个目标因此
+    静默跳过, 旧的 95% 中位数门未拦下)。
+    """
+    values = np.asarray(close, dtype=np.float64)
+    if values.ndim != 2 or values.shape[0] < 6:
+        return
+    latest = set(np.flatnonzero(np.isfinite(values[-1])).tolist())
+    recent: set[int] = set()
+    for row in range(values.shape[0] - 6, values.shape[0] - 1):
+        recent.update(np.flatnonzero(np.isfinite(values[row])).tolist())
+    missing = recent - latest
+    tol = tolerance if tolerance is not None else max(30, int(len(latest) * 0.005))
+    if len(missing) > tol:
+        sample = ", ".join(symbols[i] for i in sorted(missing)[:5])
+        raise RuntimeError(
+            f"unpublished bars: {len(missing)} symbols traded recently but missing on as-of"
+            f" (> {tol}; 样例 {sample})"
         )
 
 
@@ -410,6 +451,7 @@ def main() -> int:
             f"market data incomplete for as-of: expected {args.as_of}, got {last_market_date}"
         )
     require_market_completeness(production.close)
+    require_no_unpublished_bars(production.symbols, production.close)
 
     current = pl.read_parquet(args.current_instruments)
     require_instrument_snapshot(current["as_of"].max(), args.as_of)
@@ -588,7 +630,7 @@ def main() -> int:
     monthly.write_parquet(output / "monthly_metrics.parquet")
     overlap.write_parquet(output / "signal_overlap.parquet")
     quality.write_parquet(output / "data_quality.parquet")
-    _write_manifest(output, args, generation, pit)
+    _write_manifest(output, args, generation, pit, market_coverage_evidence(production.close))
     _write_report(output, args, signals, summary, quality)
     print(output)
     return 0
@@ -633,6 +675,7 @@ def _write_manifest(
     args: argparse.Namespace,
     generation: str,
     pit: dict[str, object],
+    market_coverage: dict,
 ) -> None:
     source_paths = (
         args.current_instruments,
@@ -674,6 +717,7 @@ def _write_manifest(
                 path.name: sha256_file(path)
                 for path in sorted(output.glob("*.parquet"))
             },
+            "market_coverage": market_coverage,
         },
     )
     write_research_run_manifest(output / "manifest.json", manifest)

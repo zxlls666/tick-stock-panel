@@ -16,12 +16,14 @@ from scripts.run_a_share_oos_observer import (
     completed_month_end_mask,
     freeze_oos_month_ends,
     manifest_covered_through,
+    market_coverage_evidence,
     monthly_account_metrics,
     observation_path,
     oos_account_stats,
     require_calendar_horizon,
     require_instrument_snapshot,
     require_market_completeness,
+    require_no_unpublished_bars,
     require_source_coverage,
     restrict_bars_to_market_axis,
     signal_overlap,
@@ -30,6 +32,29 @@ from scripts.run_a_share_oos_observer import (
     target_rows_with_pending,
     warmup_start_index,
 )
+
+
+def test_market_coverage_uses_min_baseline_and_099_ratio() -> None:
+    close = np.full((21, 4), 10.0)
+    close[-1, 3] = np.nan  # 最新一天少一只 → 3/4 = 0.75
+
+    assert market_coverage_evidence(close) == {"latest": 3, "baseline_min": 4, "ratio": 0.75}
+    with pytest.raises(RuntimeError, match="coverage is incomplete"):
+        require_market_completeness(close)
+
+
+def test_require_no_unpublished_bars_blocks_mass_gap() -> None:
+    symbols = tuple(f"{600000 + i:06d}.SH" for i in range(100))
+    close = np.full((6, 100), 10.0)
+    close[-1, :40] = np.nan  # 近期都在交易, 最新一天缺 40 只 (供应商未出数)
+
+    with pytest.raises(RuntimeError, match="unpublished bars"):
+        require_no_unpublished_bars(symbols, close)
+
+    # 少量合法缺席 (停牌) → 通过
+    close_ok = np.full((6, 100), 10.0)
+    close_ok[-1, :5] = np.nan
+    require_no_unpublished_bars(symbols, close_ok)
 
 
 def test_completed_month_end_mask_uses_calendar_without_future_market_bar() -> None:

@@ -363,12 +363,21 @@ def run_now(
     # 这里检测并**可见化**(WARNING + 计入结果), 让掉队标的不再隐形。
     # (自动回补暂不做 —— 需带退市判定, 否则对已退市标的每轮空拉浪费 API 额度。)
     lagging_symbols: list[str] = []
+    laggards_file: str | None = None
     if pull_a_share and latest_daily:
         try:
-            lagging_symbols = repo.symbols_lagging(today, min_gap_days=3)
-            if lagging_symbols:
-                logger.warning("日K新鲜度: %d 只标的落后 >3 日 (停牌/退市/拉取失败; 样例: %s)",
-                               len(lagging_symbols), lagging_symbols[:10])
+            detail = repo.lagging_detail(today, min_gap_days=3)
+            lagging_symbols = detail["symbol"].to_list()
+            if detail.height:
+                runtime_dir = repo.store.data_dir / "runtime"
+                runtime_dir.mkdir(parents=True, exist_ok=True)
+                path = runtime_dir / f"laggards_{today.isoformat()}.parquet"
+                detail.write_parquet(path)
+                laggards_file = str(path)
+                logger.warning(
+                    "日K新鲜度: %d 只标的落后 >3 日 (停牌/退市/拉取失败; 样例: %s; 明细: %s)",
+                    detail.height, lagging_symbols[:10], path,
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("laggard detection failed: %s", e)
             stage_errors.append(f"laggard detection: {e}")
@@ -742,6 +751,7 @@ def run_now(
         "regime_days": regime_days,
         "mainline_rows": mainline_rows,
         "lagging_symbols": len(lagging_symbols),
+        "laggards_file": laggards_file,
         "integrity_repair_from": repair_start.isoformat() if repair_start else None,
         "integrity_issues": len(integrity_issues),
         "skipped_stages": skipped,

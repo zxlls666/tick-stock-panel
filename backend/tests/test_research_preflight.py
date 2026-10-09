@@ -18,6 +18,7 @@ from app.backtest.research_preflight import (
     check_observation_absent,
     check_pit_shares,
     check_source_coverage,
+    check_unpublished_bars,
     run_preflight,
 )
 
@@ -33,9 +34,22 @@ def test_check_enriched_latest_staleness() -> None:
 
 
 def test_check_market_completeness_ratio() -> None:
-    assert check_market_completeness(5000, 5100).ok
+    # 收紧到 0.99 (旧 0.95 放过了 2026-10-08 的 1.8% 缺口)
+    assert check_market_completeness(5100, 5100).ok
+    assert check_market_completeness(5050, 5100).ok
+    assert not check_market_completeness(5000, 5100).ok
     assert not check_market_completeness(3000, 5100).ok
     assert check_market_completeness(100, 0).ok  # 无基线跳过
+
+
+def test_check_unpublished_bars_gate() -> None:
+    latest = {"600000.SH", "000001.SZ"}
+    # 少量合法缺席 (停牌/退市长期无 bar) → 通过
+    assert check_unpublished_bars(latest, latest | {"600002.SH"}, tolerance=30).ok
+    # 大面积"近期有成交却缺席" → 拦下
+    recent = latest | {f"{600100 + i:06d}.SH" for i in range(100)}
+    failed = check_unpublished_bars(latest, recent, tolerance=30)
+    assert not failed.ok and "样例" in failed.detail
 
 
 def test_check_generation_and_snapshot_and_coverage() -> None:
@@ -107,10 +121,28 @@ def test_run_preflight_passes_on_aligned_inputs(tmp_path) -> None:
     report = run_preflight(_write_env(tmp_path))
     assert report.ok, [c.detail for c in report.failures]
     assert {c.name for c in report.checks} == {
-        "enriched_latest", "market_completeness", "generation", "instruments_as_of",
-        "st_coverage", "delisted_coverage", "pit_shares", "calendar_horizon",
-        "observation_absent",
+        "enriched_latest", "market_completeness", "unpublished_bars", "generation",
+        "instruments_as_of", "st_coverage", "delisted_coverage", "pit_shares",
+        "calendar_horizon", "observation_absent",
     }
+
+
+def test_run_preflight_fails_on_latest_partition_dip(tmp_path) -> None:
+    """最新分区比前一交易日少 4% → 0.99 门拒绝 (旧 0.95 中位数门会放行)。"""
+    config = _write_env(tmp_path)
+    base = config.data_dir / "kline_daily_enriched"
+    symbols = [f"{600000 + i}.SH" for i in range(100)]
+    pl.DataFrame({"symbol": symbols}).write_parquet(
+        base / f"date={(AS_OF - timedelta(days=1)).isoformat()}" / "part.parquet"
+    )
+    pl.DataFrame({"symbol": symbols[:96]}).write_parquet(
+        base / f"date={AS_OF.isoformat()}" / "part.parquet"
+    )
+
+    report = run_preflight(config)
+
+    assert not report.ok
+    assert "market_completeness" in {c.name for c in report.failures}
 
 
 def test_run_preflight_fails_on_generation_drift(tmp_path) -> None:

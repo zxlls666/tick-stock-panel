@@ -75,7 +75,7 @@ def check_enriched_latest(
 
 
 def check_market_completeness(
-    latest_symbols: int, baseline_symbols: int, *, ratio: float = 0.95
+    latest_symbols: int, baseline_symbols: int, *, ratio: float = 0.99
 ) -> CheckResult:
     name = "market_completeness"
     if baseline_symbols <= 0:
@@ -118,6 +118,28 @@ def check_pit_shares(last_period_end: date | None, as_of: date) -> CheckResult:
     return CheckResult(name, True, f"最后 period_end {last_period_end}")
 
 
+def check_unpublished_bars(
+    latest_symbols: set[str],
+    recent_symbols: set[str],
+    *,
+    tolerance: int,
+) -> CheckResult:
+    """最新分区缺席、但近几个交易日仍在交易的标的 (供应商尚未出数) 不得超过容忍度。
+
+    停牌/退市标的长期无 bar, 属合法缺席; 而"最近还在交易、最新交易日却整只没有"只可能是
+    数据未到 —— 这类缺口必须 fail-closed, 否则观察包会建在不完整数据上却报成功 (2026-10-08
+    即因此让 2 个目标静默跳过, 且旧版 95% 中位数门照样放行)。
+    """
+    name = "unpublished_bars"
+    missing = sorted(recent_symbols - latest_symbols)
+    if len(missing) > tolerance:
+        sample = ", ".join(missing[:5])
+        return CheckResult(
+            name, False, f"{len(missing)} 只近期有成交但最新分区缺失 (> {tolerance}; 样例 {sample})"
+        )
+    return CheckResult(name, True, f"缺失 {len(missing)} <= {tolerance}")
+
+
 def check_calendar_horizon(calendar: tuple[date, ...], as_of: date) -> CheckResult:
     name = "calendar_horizon"
     if not calendar:
@@ -148,7 +170,7 @@ class PreflightConfig:
     st_manifest: Path
     delisted_coverage_manifest: Path
     staleness_days: int = 7
-    completeness_ratio: float = 0.95
+    completeness_ratio: float = 0.99
 
 
 def _read_json_end(path: Path) -> date | None:
@@ -165,10 +187,14 @@ def _read_enriched_dates(data_dir: Path) -> list[date]:
 
 
 def _partition_symbol_count(data_dir: Path, day: date) -> int:
+    return len(_partition_symbols(data_dir, day))
+
+
+def _partition_symbols(data_dir: Path, day: date) -> set[str]:
     part = data_dir / "kline_daily_enriched" / f"date={day.isoformat()}" / "part.parquet"
     if not part.exists():
-        return 0
-    return pl.read_parquet(part, columns=["symbol"]).height
+        return set()
+    return set(pl.read_parquet(part, columns=["symbol"])["symbol"].to_list())
 
 
 def _max_date_column(path: Path, column: str) -> date | None:
@@ -203,19 +229,30 @@ def run_preflight(config: PreflightConfig) -> PreflightReport:
 
     latest_count = 0
     baseline_count = 0
+    latest_symbols: set[str] = set()
+    recent_symbols: set[str] = set()
     within = [d for d in dates if d <= config.as_of]
     if within:
         latest_day = within[-1]
-        latest_count = _partition_symbol_count(config.data_dir, latest_day)
-        baseline_days = [d for d in dates if d <= latest_day][-21:-1]
+        latest_symbols = _partition_symbols(config.data_dir, latest_day)
+        latest_count = len(latest_symbols)
+        baseline_days = within[-21:-1]
         if baseline_days:
             counts = sorted(_partition_symbol_count(config.data_dir, d) for d in baseline_days)
-            baseline_count = counts[len(counts) // 2]
+            # 用 20 日**最小值**作基线 (中位数会掩盖单日缺口; 2026-10-08 的 95% 中位数门即漏过 1.8% 缺口)
+            baseline_count = counts[0]
+        for day in within[-6:-1]:
+            recent_symbols |= _partition_symbols(config.data_dir, day)
+
+    unpublished_tolerance = max(30, int(latest_count * 0.005))
 
     checks = (
         latest,
         check_market_completeness(
             latest_count, baseline_count, ratio=config.completeness_ratio
+        ),
+        check_unpublished_bars(
+            latest_symbols, recent_symbols, tolerance=unpublished_tolerance
         ),
         check_generation(_read_generation(config.data_dir), config.expected_generation),
         check_instruments_as_of(_max_date_column(config.instruments, "as_of"), config.as_of),

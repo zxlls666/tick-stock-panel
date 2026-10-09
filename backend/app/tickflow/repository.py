@@ -1999,18 +1999,43 @@ class KlineRepository:
         全局 max(date) 只要有一只票有今日数据就成立, 会掩盖停牌/复牌/一直拉失败而
         掉队的个股缺口。此方法按 symbol 聚合最新日期, 找出掉队者。只读, 不改数据。
         """
+        return self.lagging_detail(reference_date, min_gap_days)["symbol"].to_list()
+
+    def lagging_detail(self, reference_date: date, min_gap_days: int = 3) -> pl.DataFrame:
+        """日K落后标的**明细** (只读): symbol / last_date / gap_days。
+
+        与 symbols_lagging 同一判据, 但保留最后交易日与缺口天数, 供落盘复核与门控
+        (「哪些标的缺了最新交易日」必须可复现, 不能只留一个数量)。查询失败返回空表。
+        """
         from datetime import timedelta
+
+        schema = {"symbol": pl.String, "last_date": pl.Date, "gap_days": pl.Int64}
         try:
             cutoff = reference_date - timedelta(days=min_gap_days)
             with self._lock:
                 rows = self.db.execute(
-                    "SELECT symbol, max(date) AS mx FROM kline_daily "
-                    "GROUP BY symbol HAVING max(date) < ? ORDER BY mx",
+                    "SELECT symbol, max(date) AS last_date FROM kline_daily "
+                    "GROUP BY symbol HAVING max(date) < ? ORDER BY last_date, symbol",
                     [cutoff],
                 ).fetchall()
-            return [r[0] for r in rows if r and r[0]]
         except Exception:
-            return []
+            return pl.DataFrame(schema=schema)
+        records = []
+        for row in rows:
+            if not row or not row[0]:
+                continue
+            last = row[1]
+            if not isinstance(last, date):
+                try:
+                    last = date.fromisoformat(str(last)[:10])
+                except ValueError:
+                    continue
+            records.append({
+                "symbol": row[0],
+                "last_date": last,
+                "gap_days": (reference_date - last).days,
+            })
+        return pl.DataFrame(records, schema=schema)
 
     def _latest_enriched_date_duckdb(self) -> date | None:
         try:
