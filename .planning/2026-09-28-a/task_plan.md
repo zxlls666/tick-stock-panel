@@ -86,9 +86,11 @@ Phase 10 in progress: paper-only OOS observer CLI; Phase 5 remains blocked by mi
 - [x] 完整日行情、同日 instruments、ST/退市覆盖更新后生成首个成功 observation
 - [x] 9 月 30 日收盘后生成首个月末信号
 - [x] 10 月 8 日下一交易日开盘影子执行并复核成交/阻塞/容量
-  - 2026-10-08 执行：生产 10/8 日线/enriched 5,458 行(generation `55b33ebaeb4d46c7b544ff00712b1db6`)、instruments `as_of=2026-10-08`、ST v4 覆盖至 10/8、退市覆盖审计至 10/8；preflight 9/9 通过；observer 产出 `data/research/a_share_oos/as_of=2026-10-08/`。
-  - 影子成交复核：四账户各建 17 个仓位(9/30 目标 20 只),`blocked_buy_count=1`;100 万账户成本 0.059%、1000 万账户成本 0.125%(含冲击),1000 万账户容量未成交 189.5 万、`max_requested_adv_participation` 3.32% 超 1% 上限被截；无阻塞卖出、无退市/停牌持仓。
-- **Status:** first month-end signal completed; first shadow execution done 2026-10-08 (pending human review)
+  - 2026-10-08 首次执行（后被证伪）：建包时 10/8 enriched 分区**不完整**（preflight `latest=5458 vs baseline=5550`；盘后管道记 `114 只落后`）→ 回测矩阵里 2 个目标当日无 bar，`desired=0` 使其**既未成交也未计入 blocked**，首日仅 17 仓；旧版 95% 中位数完整度门未拦下。
+  - 该包已按仓库惯例归档：`_superseded/as_of=2026-10-08-incomplete-enriched-partition-v1/`（含 `SUPERSEDED.md`）。
+  - 更正后的影子成交复核（`as_of=2026-10-09`，自 OOS 起点重放 + 逐名执行轨迹）：10/8 = **19 filled + 1 queue_block**（605303.SH 一字板）；10/9 补齐第 20 仓。四账户成本 0.059%(100万)/0.125%(1000万，含冲击)；1000 万容量未成交 189.5 万、`max_requested_adv_participation` 3.32% 被 1% ADV 上限截；无阻塞卖出、无退市/停牌持仓。
+  - 门控修缮（落地）：`research_preflight.market_completeness` 基线改为近 20 日 **min** + 比例 **0.99**，并新增按名的 `unpublished_bars`（近期有成交却缺席最新分区 → fail-closed）；observer 同步收紧；新增逐名 `execution_trades.parquet`；盘后管道落盘 `data/runtime/laggards_<date>.parquet`（明细，不再只有数量）。
+- **Status:** first shadow execution done 2026-10-08 (package superseded); corrected execution view in `as_of=2026-10-09`
 
 ### Phase 11: External scheduler activation
 
